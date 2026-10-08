@@ -10,6 +10,7 @@ from app.agents.base import (
     complete_json,
     new_agent_run,
 )
+from app.agents.judge_answer import AnswerGenerator, JudgeAgent
 from app.agents.query_analyzer import (
     QueryAnalyzer,
     detect_reference_hints,
@@ -29,6 +30,8 @@ from app.agents.vision_agent import VisionAgent
 __all__ = [
     "Agent",
     "AgentContext",
+    "AnswerGenerator",
+    "JudgeAgent",
     "QueryAnalyzer",
     "TableAgent",
     "TextAgent",

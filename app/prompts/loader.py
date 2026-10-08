@@ -14,7 +14,7 @@ from app.config import PROJECT_ROOT
 
 PROMPTS_ROOT = PROJECT_ROOT / "app" / "prompts" / "templates"
 
-ALLOWED_NAMES = frozenset({"query_analyzer", "text_agent", "table_agent", "vision_agent"})
+ALLOWED_NAMES = frozenset({"query_analyzer", "text_agent", "table_agent", "vision_agent", "judge_agent", "answer_generator"})
 
 
 class PromptNotFoundError(FileNotFoundError):
