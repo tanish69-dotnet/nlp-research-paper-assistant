@@ -20,9 +20,10 @@ htmlcov/
 *.pem
 
 # --- Data (never commit corpora or raw run outputs) ---
-evaluation/datasets/**
-!evaluation/datasets/manifest.json
-!evaluation/datasets/.gitkeep
+evaluation/datasets/fixtures/**
+evaluation/datasets/spiqa/**
+evaluation/datasets/researchlens-xm/**
+evaluation/datasets/manifest.json
 evaluation/results/**
 !evaluation/results/.gitkeep
 evidence/

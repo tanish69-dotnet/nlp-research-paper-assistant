@@ -1,0 +1,11 @@
+{
+  "system": "A",
+  "dataset": "fixture-mini",
+  "dataset_version": "0.1.0",
+  "split": "all",
+  "seed": 17,
+  "model_provider": "mock",
+  "max_examples": 7,
+  "evidence_frozen": true,
+  "include_analysis": false
+}

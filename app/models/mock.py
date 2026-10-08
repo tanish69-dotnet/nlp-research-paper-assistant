@@ -66,6 +66,39 @@ class MockModelProvider(ModelProvider):
             if needle in prompt:
                 return reply
         if request.response_format == "json":
+            # Generic fallback that remains schema-valid for the placeholder
+            # harness run: produce a conservative QueryPlan shape when nothing
+            # matches, and an empty findings set for agents. Probe by keyword.
+            if "Query Analyzer" in prompt or "query analyzer" in prompt:
+                return json.dumps(
+                    {
+                        "question_type": "other",
+                        "required_modalities": ["text"],
+                        "tasks": [
+                            {
+                                "task": "answer from supplied evidence",
+                                "modality": "text",
+                                "target_references": [],
+                            }
+                        ],
+                        "target_references": [],
+                        "requires_cross_modal": False,
+                        "paper_scope": "any",
+                        "paper_ids": [],
+                        "sub_questions": [],
+                        "confidence": 0.45,
+                    }
+                )
+            if "Text Reasoning Agent" in prompt:
+                return json.dumps({"findings": []})
+            if "Table Reasoning Agent" in prompt:
+                return json.dumps({"findings": []})
+            if "Vision" in prompt or "Figure" in prompt:
+                return json.dumps({"findings": []})
+            if "Judge" in prompt:
+                return json.dumps({"verdicts": []})
+            if "Answer Generator" in prompt:
+                return json.dumps({"answer": "No verified claims to answer from.", "reasoning_summary": "harness fallback"})
             digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
             return json.dumps(
                 {

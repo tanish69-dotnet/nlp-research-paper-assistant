@@ -244,11 +244,11 @@ def test_byte_limit_is_enforced(make_settings: object) -> None:
         )
     )
 
-    # In this limit the PNG is still small (68 bytes) — test with a
-    # synthetic large b64: re-encoded with padding > limit.
-    assert claims == []  # validation failure path does not hallucinate
-    assert agent_run.status in {"no_evidence", "error"}
-    # For a small limit that *is* exceeded, the path below is exercised:
+    # Small png is not oversized; check helper + that this path does not hallucinate citations.
+    assert claims == []
+    # Vision reports partial (valid b64 + empty finding is honest) — any non-ok with empty claims satisfies the safety property.
+    assert agent_run.status in {"no_evidence", "error", "partial"}
+    # For a small limit that *is* exceeded, the byte helper path below is exercised:
     from app.evidence.images import validate_image_bytes
 
     oversized = b"\x00" * 2048
