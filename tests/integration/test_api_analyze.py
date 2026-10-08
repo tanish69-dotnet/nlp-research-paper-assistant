@@ -67,20 +67,8 @@ def _payload(
 def test_analyze_text_query_returns_plan_and_claims(make_client: Any) -> None:
     client: TestClient = make_client()  # type: ignore[operator]
 
-    # Patch the mock provider's responses for this test via the app's registry.
-    # Each request's mock provider is freshly constructed from Settings, so we
-    # override the provider after creation (a small, self-contained shim).
     from app.models.mock import MockModelProvider
-    from app.schemas.evidence import EvidenceBundle
 
-    def text_override(request):  # type: ignore[no-untyped-def]
-        band = request.model
-        body = json.loads(request.content)
-        if isinstance(body, dict) and "Query Analyzer" in str(body):
-            return json.dumps(_valid_plan())
-        return json.dumps(_valid_text_findings())
-
-    # Replace with a provider that knows both payloads.
     class DualMock(MockModelProvider):
         name = "mock"
 
@@ -94,6 +82,7 @@ def test_analyze_text_query_returns_plan_and_claims(make_client: Any) -> None:
 
     dual = DualMock()
     client.app.state.registry._provider = dual  # short-circuit for this test
+    ids_present = {item["evidence_id"] for item in load_mock_evidence()["evidence"]}
 
     response = client.post("/api/v1/analyze", json=_payload("simple text question"))
 
@@ -104,8 +93,13 @@ def test_analyze_text_query_returns_plan_and_claims(make_client: Any) -> None:
     assert body["plan"] is not None
     assert body["tasks"]
     assert body["plan"]["question_type"]
-    # at least the text reasoning run plus the analyzer run
-    assert [run["agent"] for run in body["agent_outputs"]] == ["query_analyzer", "text_reasoner"]
+    text_tasks = [task for task in body["tasks"] if task["modality"] == "text"]
+    assert text_tasks and text_tasks[0]["status"] == "executable"
+    assert text_tasks[0]["agent"] == "text_reasoner"
+    for task in body["tasks"]:
+        assert set(task["evidence_ids"]) <= ids_present
+    for claim in body["claims"]:
+        assert set(claim["evidence_ids"]) <= ids_present
 
 
 def test_analyze_mixed_query_defers_table_and_figure(make_client: Any) -> None:
@@ -143,9 +137,8 @@ def test_analyze_mixed_query_defers_table_and_figure(make_client: Any) -> None:
     body = response.json()
     by_modality = {task["modality"]: task for task in body["tasks"]}
     assert by_modality["text"]["status"] == "executable"
-    assert by_modality["table"]["status"] == "deferred"
-    assert by_modality["figure"]["status"] == "deferred"
-    assert all("Phase 3" in task["reason"] for task in body["tasks"] if task["modality"] in {"table", "figure"})
+    assert by_modality["table"]["status"] == "executable"
+    assert by_modality["figure"]["status"] == "executable"
 
 
 def test_analyze_returns_malformed_model_output_as_degraded(make_client: Any) -> None:
@@ -266,7 +259,7 @@ def test_analyze_exposes_openapi(client: TestClient) -> None:
 def test_analyze_never_fakes_table_findings_for_a_table_question(
     make_client: Any,
 ) -> None:
-    """Table-only questions must be left as deferred — no text-agent claims."""
+    """Table tasks produce agent outputs — claims may be partial, never faked via text."""
     from app.models.mock import MockModelProvider
 
     provider = MockModelProvider(
@@ -289,10 +282,13 @@ def test_analyze_never_fakes_table_findings_for_a_table_question(
 
     assert response.status_code == 200
     body = response.json()
-    assert not body["claims"], "no text-agent claims should exist for a table-only task"
-    # The only produced task is for the table modality — it must be deferred.
     table_tasks = [task for task in body["tasks"] if task["modality"] == "table"]
-    assert table_tasks and all(task["status"] == "deferred" for task in table_tasks)
+    assert table_tasks and all(task["status"] == "executable" for task in table_tasks)
+    agents = {run["agent"] for run in body["agent_outputs"]}
+    assert "table_reasoner" in agents
+    known = {item["evidence_id"] for item in load_mock_evidence()["evidence"]}
+    for claim in body["claims"]:
+        assert set(claim["evidence_ids"]) <= known
 
 
 def test_analyze_evidence_ids_are_within_the_bundle(make_client: Any) -> None:

@@ -59,9 +59,8 @@ def test_table_task_is_deferred_with_reason(make_settings: object) -> None:
 
     planned = plan_tasks(_plan(modalities=["table"]), _bundle(), settings)
 
-    assert planned[0].status == "deferred"
-    assert planned[0].agent is None
-    assert "Phase 3" in planned[0].reason
+    assert planned[0].status == "executable"
+    assert planned[0].agent == "table_reasoner"
 
 
 def test_figure_task_is_deferred(make_settings: object) -> None:
@@ -69,9 +68,8 @@ def test_figure_task_is_deferred(make_settings: object) -> None:
 
     planned = plan_tasks(_plan(modalities=["figure"]), _bundle(), settings)
 
-    assert planned[0].status == "deferred"
-    assert planned[0].modality == "figure"
-    assert planned[0].agent is None
+    assert planned[0].status == "executable"
+    assert planned[0].agent == "vision_reasoner"
 
 
 def test_mixed_modalities_are_routed_and_deferred_correctly(
@@ -85,8 +83,8 @@ def test_mixed_modalities_are_routed_and_deferred_correctly(
 
     by_modality = {task.modality: task for task in planned}
     assert by_modality["text"].status == "executable"
-    assert by_modality["table"].status == "deferred"
-    assert by_modality["figure"].status == "deferred"
+    assert by_modality["table"].status == "executable"
+    assert by_modality["figure"].status == "executable"
 
 
 def test_text_task_without_matching_evidence_is_skipped(
@@ -153,7 +151,7 @@ def test_reference_coverage_adds_missing_tasks(make_settings: object) -> None:
     assert "Table 3" in refs_covered
     assert "Figure 5" in refs_covered
     assert any(
-        task.status == "deferred" and task.modality == "table" for task in planned
+        task.status == "executable" and task.modality == "table" for task in planned
     )
 
 
@@ -170,7 +168,10 @@ def test_planner_never_fakes_missing_agents_via_text(make_settings: object) -> N
         _bundle(),
         settings,
     )
-    assert {task.agent for task in planned if task.modality in {"table", "figure"}} == {None}
+    assert {task.agent for task in planned if task.modality in {"table", "figure"}} == {
+        "table_reasoner",
+        "vision_reasoner",
+    }
 
 
 def test_evidence_ids_propagate_from_bundle_by_reference(

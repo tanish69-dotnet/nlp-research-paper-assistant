@@ -48,7 +48,7 @@ def test_prompt_is_deterministic_across_loads() -> None:
 
 def test_unknown_prompt_is_rejected() -> None:
     with pytest.raises(PromptNotFoundError, match="unknown prompt"):
-        load_prompt("table_agent", "v1")
+        load_prompt("equation_solver", "v1")
 
 
 def test_unknown_version_is_rejected() -> None:

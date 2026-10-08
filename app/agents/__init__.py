@@ -15,15 +15,31 @@ from app.agents.query_analyzer import (
     detect_reference_hints,
     default_plan,
 )
+from app.agents.table_agent import TableAgent
+from app.agents.table_ops import (
+    best_in_column,
+    delta_between,
+    infer_metric_direction,
+    lookup_cell,
+    numeric_ranking,
+)
 from app.agents.text_agent import TextAgent
+from app.agents.vision_agent import VisionAgent
 
 __all__ = [
     "Agent",
     "AgentContext",
     "QueryAnalyzer",
+    "TableAgent",
     "TextAgent",
+    "VisionAgent",
+    "best_in_column",
     "complete_json",
     "default_plan",
+    "delta_between",
     "detect_reference_hints",
+    "infer_metric_direction",
+    "lookup_cell",
     "new_agent_run",
+    "numeric_ranking",
 ]

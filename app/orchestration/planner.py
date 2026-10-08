@@ -15,16 +15,14 @@ from app.schemas.query import QueryPlan
 # Which agents exist in this phase.
 _AGENTS_FOR_MODALITY: dict[str, str | None] = {
     "text": "text_reasoner",
-    "table": None,
-    "figure": None,
+    "table": "table_reasoner",
+    "figure": "vision_reasoner",
     "equation": None,
     "metadata": None,
 }
 
-#: Phase 3+ reason why a modality is deferred.
+#: Phases 3+ deferred reasons (only modalities still without an agent appear).
 _DEFERRED_REASONS = {
-    "table": "table_reasoning_agent not implemented yet (Phase 3)",
-    "figure": "vision_reasoning_agent not implemented yet (Phase 3)",
     "equation": "equation handling is planned for a later phase",
     "metadata": "metadata tasks are not routed to an agent",
 }
@@ -94,24 +92,27 @@ def plan_tasks(
         lower = ref.strip().lower()
         modality = "figure" if lower.startswith("figure") or lower.startswith("fig") else "table" if lower.startswith("table") else "text"
         agent = _AGENTS_FOR_MODALITY.get(modality)
+        has_evidence = bool(modality_evidence.get(modality))
+        # Executable assignment follows implemented agents; only when that modality
+        # has actual evidence in the bundle. Otherwise skipped.
+        if agent is not None:
+            status = "executable" if has_evidence else "skipped"
+            reason = (
+                "reference binding from plan.target_references"
+                if has_evidence
+                else f"no evidence of type '{modality}' available"
+            )
+        else:
+            status = "deferred"
+            reason = _DEFERRED_REASONS.get(modality, "agent not implemented yet")
         tasks.append(
             PlannedTask(
                 task_id=f"t{len(tasks) + 1}",
                 task=f"handle {ref}",
                 modality=modality,  # type: ignore[arg-type]
                 agent=agent,  # type: ignore[arg-type]
-                status=(
-                    "executable"
-                    if agent == "text_reasoner" and modality_evidence.get("text")
-                    else "deferred"
-                    if agent is None
-                    else "skipped"
-                ),
-                reason=(
-                    "reference binding from plan.target_references"
-                    if agent == "text_reasoner"
-                    else _DEFERRED_REASONS.get(modality, "agent not implemented yet")
-                ),
+                status=status,  # type: ignore[arg-type]
+                reason=reason,
                 target_references=[ref],
                 evidence_ids=[by_reference[ref]] if ref in by_reference else [],
             )
