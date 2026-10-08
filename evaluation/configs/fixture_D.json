@@ -5,7 +5,26 @@
   "split": "all",
   "seed": 17,
   "model_provider": "mock",
-  "max_examples": 7,
+  "model_versions": {
+    "provider": null,
+    "analyzer": null,
+    "text": null,
+    "table": null,
+    "vision": null,
+    "judge": null,
+    "generator": null
+  },
+  "prompt_versions": {
+    "analyzer": null,
+    "text": null,
+    "table": null,
+    "vision": null,
+    "judge": null,
+    "generator": null
+  },
+  "max_examples": null,
+  "output_dir": null,
   "evidence_frozen": true,
-  "include_analysis": false
+  "include_analysis": false,
+  "ablation": null
 }

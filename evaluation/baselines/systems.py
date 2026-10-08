@@ -38,6 +38,36 @@ SYSTEMS: dict[SystemId, SystemDefinition] = {
     "D": SystemDefinition("D", "multimodal", True, True, "Multimodal + multi-agent + judge"),
 }
 
+# Phase 6 ablations: each is a small, focused removal over D's frozen inputs.
+ABLATIONS: dict[str, dict[str, object]] = {
+    # id : {remove, label}
+    "AB-T": {
+        "remove": "text",
+        "label": "Ablation AB-T — TextAgent removed",
+        "expectation": "drop on text/definition/causal questions",
+    },
+    "AB-Tab": {
+        "remove": "table",
+        "label": "Ablation AB-Tab — TableAgent removed",
+        "expectation": "drop on numeric/table questions",
+    },
+    "AB-V": {
+        "remove": "figure",
+        "label": "Ablation AB-V — VisionAgent removed",
+        "expectation": "drop on figure/trend questions",
+    },
+    "AB-J": {
+        "remove": "judge",
+        "label": "Ablation AB-J — Judge removed (no verification)",
+        "expectation": "hallucination and citation errors increase, latency decreases",
+    },
+    "AB-O": {
+        "remove": "orchestration",
+        "label": "Ablation AB-O — Multi-LLM orchestration removed (single generic LLM)",
+        "expectation": "reproduces system B within noise",
+    },
+}
+
 CATEGORY_SLICES: dict[Category, set[Category]] = {
     "text": {"text"},
     "table": {"table"},

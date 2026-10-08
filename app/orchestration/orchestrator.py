@@ -156,13 +156,23 @@ async def full_reasoning(
     request_id: str,
     settings: Settings,
     registry: ModelRegistry,
+    *,
+    without_judge: bool = False,
 ) -> OrchestratorResult:
     """Run the entire verified reasoning pipeline.
 
-    On any agent failure, that agent's claims are simply absent; the judge
-    still runs. On judge failure, no factual answer is presented as verified
+    ``without_judge`` is the experiment harness path for systems C and the
+    AB-J ablation (EVALUATION.md §§2–3, §17): the same agents run on the same
+    frozen evidence, but ``verification_result`` is ``unverified`` and the
+    answer is built from unverified claims. The production ``/reason`` never
+    exposes unverified claims as verified facts.
+ On judge failure, no factual answer is presented as verified
     (return an empty answer, with ``unverified=True`` propagated to the
     response's ``verification.status``).
+
+    ``without_judge`` is the Phase 6 harness path for systems C / AB-J / AB-O
+    (EVALUATION.md §§2–3, §17): same agents, same frozen evidence, but
+    verification is intentionally ``unverified``.
     """
     timings: dict[str, int] = {}
 
@@ -269,7 +279,24 @@ async def full_reasoning(
     unverified = False
     judge_started = time.perf_counter()
 
-    if claims:
+    if without_judge and claims:
+        # System C / AB-J: judge intentionally off (Phase 6)
+        verification_result = VerificationResult(status="unverified")
+        unverified = False
+        agent_runs.append(
+            AgentRun(  # type: ignore[call-arg]
+                agent="judge",
+                model="",
+                provider=provider.name,
+                prompt_version="judge_agent/v1",
+                status="skipped",
+                latency_ms=0,
+                findings=[],
+                evidence_ids_used=list({item.evidence_id for item in bundle.evidence}),
+            )
+        )
+        timings["verify"] = 0
+    elif claims:
         judge = JudgeAgent(provider, prompt_version="v1")
         judge_ctx = AgentContext(
             request_id=request_id,

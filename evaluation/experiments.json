@@ -1,0 +1,95 @@
+{
+  "executed": false,
+  "systems": [
+    {
+      "dataset": "fixture-mini",
+      "system": "A",
+      "config": "evaluation/configs/fixture_A.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "B",
+      "config": "evaluation/configs/fixture_B.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "C",
+      "config": "evaluation/configs/fixture_C.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "D",
+      "config": "evaluation/configs/fixture_D.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "D+AB-T",
+      "config": "evaluation/configs/ablation_AB-T.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "D+AB-Tab",
+      "config": "evaluation/configs/ablation_AB-Tab.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "D+AB-V",
+      "config": "evaluation/configs/ablation_AB-V.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "D+AB-J",
+      "config": "evaluation/configs/ablation_AB-J.json"
+    },
+    {
+      "dataset": "fixture-mini",
+      "system": "D+AB-O",
+      "config": "evaluation/configs/ablation_AB-O.json"
+    }
+  ],
+  "ablations": [
+    "AB-T",
+    "AB-Tab",
+    "AB-V",
+    "AB-J",
+    "AB-O"
+  ],
+  "dataset_statuses": [
+    {
+      "dataset": "fixture-mini",
+      "status": "available",
+      "reason": null,
+      "version": "0.1.0",
+      "path": "evaluation/datasets/fixture-mini.json",
+      "license": "local fixture, built from tests/fixtures/mock_evidence.json",
+      "source": "tests/fixtures/mock_evidence.json"
+    },
+    {
+      "dataset": "qasper",
+      "status": "unavailable",
+      "reason": "dataset file not found at evaluation\\datasets\\qasper.json",
+      "version": "1.3",
+      "path": "evaluation/datasets/qasper.json",
+      "license": "CC BY 4.0",
+      "source": "https://allenai.org/data/qasper"
+    },
+    {
+      "dataset": "researchlens-xm",
+      "status": "unavailable",
+      "reason": "dataset file not found at evaluation\\datasets\\researchlens-xm.json",
+      "version": "0.1.0",
+      "path": "evaluation/datasets/researchlens-xm.json",
+      "license": "pending",
+      "source": "local papers + human labels (TBD)"
+    },
+    {
+      "dataset": "spiqa",
+      "status": "unavailable",
+      "reason": "dataset file not found at evaluation\\datasets\\spiqa.json",
+      "version": "replica-v1",
+      "path": "evaluation/datasets/spiqa.json",
+      "license": "pending",
+      "source": "https://huggingface.co/datasets/spiqa"
+    }
+  ]
+}

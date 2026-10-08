@@ -1,0 +1,34 @@
+{
+  "generated": "defaults-only",
+  "note": "Update rows as you ingest real benchmarks. Do not fabricate rows that mask unavailability as availability.",
+  "datasets": {
+    "fixture-mini": {
+      "version": "0.1.0",
+      "path": "evaluation/datasets/fixture-mini.json",
+      "license": "local fixture, built from tests/fixtures/mock_evidence.json",
+      "source": "tests/fixtures/mock_evidence.json",
+      "notes": "Offline fixture — the only dataset that is always available. Not a benchmark."
+    },
+    "spiqa": {
+      "version": "replica-v1",
+      "path": "evaluation/datasets/spiqa.json",
+      "license": "pending",
+      "source": "https://huggingface.co/datasets/spiqa",
+      "notes": "Primary benchmark. Adopt only after verifying usage terms. See docs/dataset_manifest.md."
+    },
+    "researchlens-xm": {
+      "version": "0.1.0",
+      "path": "evaluation/datasets/researchlens-xm.json",
+      "license": "pending",
+      "source": "local papers + human labels (TBD)",
+      "notes": "Controlled 80–120 questions over 8–12 open-licensed papers. Gated until human labeling ≥30% double-annotated."
+    },
+    "qasper": {
+      "version": "1.3",
+      "path": "evaluation/datasets/qasper.json",
+      "license": "CC BY 4.0",
+      "source": "https://allenai.org/data/qasper",
+      "notes": "Evidence annotations present — useful for evidence-level scoring; gating as fiction."
+    }
+  }
+}

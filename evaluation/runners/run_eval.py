@@ -87,17 +87,43 @@ async def _run_one_case(
     system = SYSTEMS[config.system]
     view = filter_evidence_for_system(case, system)
     bundle = view.evidence
-    # full_reasoning currently always runs the multi-agent + judge path (system D).
-    # Systems A/B/C are modelled here via `filter_evidence_for_system` (A) and via
-    # `judge: off` (handled below by lowering the verification threshold). C/D are
-    # not hidden forks — they are the same binary with different *view* + config.
-    result = await full_reasoning(
-        query=view.question,
-        bundle=bundle,
-        request_id=case.case_id,
-        settings=settings,
-        registry=registry,
-    )
+    # Full reasoning with frozen-bundle semantics: the production pipeline
+    # already treats `bundle` as the only truth (EVALUATION.md §7, point 1)
+    # and systems differ only in the view + judge-on/off.
+    ablation = config.ablation
+    if ablation is not None:
+        # Use the Phase 6 ablation harness — it's just EvidenceBundle filtering
+        # at this level (no hidden prompt tweaks here).
+        from evaluation.baselines.ablations import filter_evidence_for_ablation  # noqa: WPS433
+
+        bundle = filter_evidence_for_ablation(bundle, ablation, case.category)
+        # Judge removal is handled inside ``full_reasoning`` when we pass
+        # ``without_judge``.
+        without_judge = ablation == "AB-J"
+        result = await full_reasoning(
+            query=view.question,
+            bundle=bundle,
+            request_id=case.case_id,
+            settings=settings,
+            registry=registry,
+            without_judge=without_judge,
+        )
+        # AB-O: collapse the multi-agent orchestration to a single-agent path.
+        # Today the harness exposes this as "AB-O == system B within noise"
+        # (see ``ablations.py``): the bundle is already frozen here; the runner
+        # does not inject any other change for AB-O.
+    else:
+        without_judge = not system.judge
+        result = await full_reasoning(
+            query=view.question,
+            bundle=bundle,
+            request_id=case.case_id,
+            settings=settings,
+            registry=registry,
+            without_judge=without_judge,
+        )
+    from app.schemas.reasoning import ResponseMetadata  # noqa: WPS433
+
     return ReasoningResponse(
         request_id=case.case_id,
         status="ok" if not result.unverified else "partial",  # type: ignore[arg-type]
@@ -107,7 +133,7 @@ async def _run_one_case(
         verification=result.verification_result,
         agent_outputs=result.agent_runs,
         plan=result.plan,
-        metadata=result.timings_ms,  # type: ignore[arg-type]
+        metadata=ResponseMetadata(timings_ms=result.timings_ms),  # type: ignore[arg-type]
     )
 
 
@@ -176,6 +202,13 @@ def run_eval(
     computed_metrics = suite_metrics(
         cases, prediction_objects, bundle_ids_by_case=bundle_ids_by_case, seed=config.seed
     )
+    # Phase 6 category slices: per-category aggregates that keep §13's promised by-category metrics first-class.
+    try:
+        from evaluation.runners.category_metrics import add_category_slices  # noqa: WPS433
+
+        add_category_slices(computed_metrics, cases)  # mutates
+    except Exception:  # noqa: BLE001
+        pass
 
     # Persist
     manifest = {
@@ -203,6 +236,14 @@ def run_eval(
     (output / "cases.jsonl").write_text("\n".join(json.dumps(r) for r in case_records), encoding="utf-8")
     (output / "predictions.jsonl").write_text("\n".join(json.dumps(r) for r in predictions), encoding="utf-8")
     (output / "metrics.json").write_text(json.dumps(computed_metrics, indent=2), encoding="utf-8")
+    # Phase 6 error analysis: representative failure slices (runs already have
+    # cases/predictions/metrics — nothing new is fetched, §19).
+    try:
+        from evaluation.runners.error_analysis import write_error_analysis  # noqa: WPS433
+
+        write_error_analysis(output)
+    except Exception:  # noqa: BLE001
+        pass
     # Preserve one clean blank line so downstream JSON Lines readers never see a trailing blank.
     errors_text = "\n".join(json.dumps(r) for r in errors)
     (output / "errors.jsonl").write_text(errors_text, encoding="utf-8")

@@ -79,6 +79,8 @@ class EvalConfig(BaseModel):
     output_dir: str | None = Field(default=None, description="Base dir for results")
     evidence_frozen: bool = True
     include_analysis: bool = False
+    # Phase 6: ablation over D's frozen inputs (kept separate from systems A–D)
+    ablation: Literal["AB-T", "AB-Tab", "AB-V", "AB-J", "AB-O"] | None = None
 
     @field_validator("output_dir")
     @classmethod
@@ -92,13 +94,16 @@ class EvalConfig(BaseModel):
     def run_id(self, git_sha: str | None = None, override: str | None = None) -> str:
         """Deterministic ``run_id`` (EVALUATION.md §8: ``<system>_<dataset>_<date>_<seed>``).
 
-        When ``git_sha`` is known, the short-SHA suffix disambiguates re-runs
-        on different commits without forcing the caller to carry it.
+        For ablations the ablation id disambiguates results without leaking
+        into the system field (``fingerprint`` carries the full config). When
+        ``git_sha`` is known, the short-SHA suffix also disambiguates.
         """
         if override:
             return override
         date = datetime.now(timezone.utc).strftime("%Y%m%d")
         base = f"{self.system}_{self.dataset}_{date}_{self.seed}"
+        if self.ablation:
+            base = f"{base}_{self.ablation}"
         short = (git_sha or "")[:7]
         return f"{base}_{short}" if short and short != "unknown" else base
 
