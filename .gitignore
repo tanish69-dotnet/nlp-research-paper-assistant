@@ -1,0 +1,49 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Secrets / local config ---
+.env
+.env.local
+*.key
+*.pem
+
+# --- Data (never commit corpora or raw run outputs) ---
+evaluation/datasets/**
+!evaluation/datasets/manifest.json
+!evaluation/datasets/.gitkeep
+evaluation/results/**
+!evaluation/results/.gitkeep
+evidence/
+*.pdf
+
+# --- Model / prompt artifacts ---
+*.gguf
+*.bin
+*.safetensors
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Local agent tooling ---
+.kilo/
+.agent/

@@ -1,0 +1,134 @@
+{
+  "query": "Which method performed best in Table 3, and why does Figure 5 show a drop in performance?",
+  "papers": [
+    {
+      "paper_id": "paper_001",
+      "title": "Sparse Retrieval with Structured Context for Scientific Document Question Answering",
+      "authors": ["A. Rao", "B. Kim"],
+      "year": 2024,
+      "venue": "ACL Findings",
+      "doi": "10.0000/example.0001",
+      "num_pages": 12
+    },
+    {
+      "paper_id": "paper_002",
+      "title": "Dense Fusion for Multimodal Scientific QA: A Reproducibility Study",
+      "authors": ["C. Alvarez", "D. Osei"],
+      "year": 2025,
+      "venue": "EMNLP",
+      "doi": "10.0000/example.0002",
+      "num_pages": 14
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "e_p001_p1_abs",
+      "paper_id": "paper_001",
+      "type": "text",
+      "content": "We study question answering over scientific documents that contain prose, tables and figures. Our approach combines sparse lexical retrieval with structured context preservation, allowing downstream reasoners to consume table cells and figure captions without flattening them into plain text chunks. Experiments on a scientific QA benchmark show consistent gains over a flat-text baseline.",
+      "reference": "Abstract",
+      "page": 1,
+      "section": "Abstract",
+      "char_span": [0, 380],
+      "score": 0.71
+    },
+    {
+      "evidence_id": "e_p001_p4_s42",
+      "paper_id": "paper_001",
+      "type": "text",
+      "content": "Experimental Setup. All systems are evaluated on the development split using identical retrieval results, so that differences are attributable to the reasoning stage rather than the retriever. We report F1 and latency. Ablations in Table 3 compare our method against two retrieval baselines. As shown in Figure 5, increasing context length beyond 8k tokens yields diminishing returns and eventually degrades F1, which we attribute to attention dilution over irrelevant retrieved passages.",
+      "reference": "Section 4.2",
+      "page": 4,
+      "section": "4.2 Experimental Setup",
+      "char_span": [1180, 1490],
+      "score": 0.87
+    },
+    {
+      "evidence_id": "e_p001_p6_limit",
+      "paper_id": "paper_001",
+      "type": "text",
+      "content": "Limitations. Our evaluation covers English-language papers only. Table extraction quality depends on the upstream parser; for multi-column tables with merged headers the structured output can be incomplete, and we fall back to the table image. We also note that figure-derived observations are qualitative unless a data table accompanies the figure.",
+      "reference": "Section 6",
+      "page": 6,
+      "section": "6 Limitations",
+      "score": 0.64
+    },
+    {
+      "evidence_id": "e_p001_p7_t3",
+      "paper_id": "paper_001",
+      "type": "table",
+      "content": "| Method    | SPIQA-F1 | Latency (s) |\n|-----------|----------|-------------|\n| Ours      | 91.4     | 0.8         |\n| Baseline-A| 84.2     | 0.6         |\n| Baseline-B| 87.9     | 1.4         |",
+      "table_data": {
+        "headers": ["Method", "SPIQA-F1", "Latency (s)"],
+        "rows": [
+          ["Ours", "91.4", "0.8"],
+          ["Baseline-A", "84.2", "0.6"],
+          ["Baseline-B", "87.9", "1.4"]
+        ],
+        "caption": "Table 3: F1 and latency on the development split.",
+        "cell_locators": {
+          "r0|c1": "p7:T3:R1C2",
+          "r1|c1": "p7:T3:R2C2",
+          "r2|c1": "p7:T3:R3C2"
+        }
+      },
+      "caption": "Table 3: F1 and latency on the development split. Ours denotes the proposed sparse-retrieval-with-structured-context system.",
+      "reference": "Table 3",
+      "page": 7,
+      "section": "4.3 Results",
+      "image": {"path": "paper_001/p7_table3.png", "mime": "image/png", "sha256": null},
+      "score": 0.92
+    },
+    {
+      "evidence_id": "e_p001_p8_f5",
+      "paper_id": "paper_001",
+      "type": "figure",
+      "content": "Line chart. X-axis: context length (2k, 4k, 8k, 16k tokens). Y-axis: SPIQA-F1 (approx. 84 to 92). Two series: 'Ours' rises from ~86 to ~91.5 up to 8k then falls to ~88 at 16k; 'Baseline-A' stays roughly flat around 84-85.",
+      "caption": "Figure 5: Effect of context length on SPIQA-F1. Performance peaks at 8k tokens and drops at 16k.",
+      "reference": "Figure 5",
+      "page": 8,
+      "section": "4.3 Results",
+      "image": {"path": "paper_001/p8_figure5.png", "mime": "image/png", "sha256": null},
+      "score": 0.81
+    },
+    {
+      "evidence_id": "e_p002_p5_t2",
+      "paper_id": "paper_002",
+      "type": "table",
+      "content": "| Method        | Dev F1 | Params (M) |\n|---------------|--------|------------|\n| DenseFusion   | 89.1   | 340        |\n| SparseCtx (P1)| 90.6   | 120        |",
+      "table_data": {
+        "headers": ["Method", "Dev F1", "Params (M)"],
+        "rows": [
+          ["DenseFusion", "89.1", "340"],
+          ["SparseCtx (P1)", "90.6", "120"]
+        ],
+        "caption": "Table 2: Comparison against SparseCtx (Rao and Kim, 2024)."
+      },
+      "caption": "Table 2: Comparison against SparseCtx (Rao and Kim, 2024). Higher is better.",
+      "reference": "Table 2",
+      "page": 5,
+      "section": "5 Results",
+      "image": {"path": "paper_002/p5_table2.png", "mime": "image/png", "sha256": null},
+      "score": 0.77
+    },
+    {
+      "evidence_id": "e_p002_p9_concl",
+      "paper_id": "paper_002",
+      "type": "text",
+      "content": "Conclusion. Under matched retrieval conditions, fusion-based reasoning does not outperform structured sparse context on this benchmark, contradicting the claim in Rao and Kim (2024) that fusion is necessary for cross-modal QA. We observe the gap widens when tables are excluded from the input, suggesting the structured table representation is the primary source of the gain.",
+      "reference": "Section 7",
+      "page": 9,
+      "section": "7 Conclusion",
+      "char_span": [40, 430],
+      "score": 0.69
+    }
+  ],
+  "retrieval": {
+    "query": "best method Table 3 Figure 5 performance drop context length",
+    "retriever": "hybrid_bm25_vss_mock",
+    "top_k": 7,
+    "retrieved_at": "2026-10-08T08:00:00Z",
+    "run_id": "r_mock_001"
+  },
+  "warnings": []
+}
