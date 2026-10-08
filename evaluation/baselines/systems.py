@@ -25,15 +25,17 @@ class SystemDefinition:
     multi_agent: bool
     judge: bool
     label: str
+    # Phase 7: whether the run is effectively single-LLM (no multi-agent).
+    single_agent_mode: bool = False
 
     @property
     def evidence_frozen_label(self) -> str:
-        return f"system={self.id} evidence={self.evidence} multi_agent={self.multi_agent} judge={self.judge}"
+        return f"system={self.id} evidence={self.evidence} multi_agent={self.multi_agent} judge={self.judge}" + (" single" if self.single_agent_mode else "")
 
 
 SYSTEMS: dict[SystemId, SystemDefinition] = {
-    "A": SystemDefinition("A", "text_only", False, False, "Baseline: text-only + single LLM"),
-    "B": SystemDefinition("B", "multimodal", False, False, "Multimodal RAG + single-LLM reasoning"),
+    "A": SystemDefinition("A", "text_only", False, False, "Baseline: text-only + single LLM", single_agent_mode=True),
+    "B": SystemDefinition("B", "multimodal", False, False, "Multimodal RAG + single-LLM reasoning", single_agent_mode=True),
     "C": SystemDefinition("C", "multimodal", True, False, "Multimodal + multi-agent (no judge)"),
     "D": SystemDefinition("D", "multimodal", True, True, "Multimodal + multi-agent + judge"),
 }

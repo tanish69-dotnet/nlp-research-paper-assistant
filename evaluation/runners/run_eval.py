@@ -85,6 +85,11 @@ async def _run_one_case(
     registry: Any,
 ) -> ReasoningResponse:
     system = SYSTEMS[config.system]
+    # Phase 7 isolation: ``single_agent_mode`` is the experiment contract that
+    # makes A/B architecturally distinct from C/D — single text-only agent
+    # receives the (already filtered) evidence view, without table/vision
+    # reasoning. The evidence view itself is also filtered (A: text_only),.
+    single_agent = bool(getattr(system, "single_agent_mode", False))
     view = filter_evidence_for_system(case, system)
     bundle = view.evidence
     # Full reasoning with frozen-bundle semantics: the production pipeline
@@ -107,6 +112,7 @@ async def _run_one_case(
             settings=settings,
             registry=registry,
             without_judge=without_judge,
+            single_agent_mode=single_agent,
         )
         # AB-O: collapse the multi-agent orchestration to a single-agent path.
         # Today the harness exposes this as "AB-O == system B within noise"
@@ -121,6 +127,7 @@ async def _run_one_case(
             settings=settings,
             registry=registry,
             without_judge=without_judge,
+            single_agent_mode=single_agent,
         )
     from app.schemas.reasoning import ResponseMetadata  # noqa: WPS433
 

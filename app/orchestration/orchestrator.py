@@ -158,13 +158,14 @@ async def full_reasoning(
     registry: ModelRegistry,
     *,
     without_judge: bool = False,
+    single_agent_mode: bool = False,
 ) -> OrchestratorResult:
     """Run the entire verified reasoning pipeline.
 
     ``without_judge`` is the experiment harness path for systems C and the
     AB-J ablation (EVALUATION.md §§2–3, §17): the same agents run on the same
     frozen evidence, but ``verification_result`` is ``unverified`` and the
-    answer is built from unverified claims. The production ``/reason`` never
+    answer is built from unverified claims\n\n    `single_agent_mode` is the Phase 7 isolation path for systems A/B and\n    the AB-O ablation. The production ``/reason`` never
     exposes unverified claims as verified facts.
  On judge failure, no factual answer is presented as verified
     (return an empty answer, with ``unverified=True`` propagated to the
@@ -201,9 +202,11 @@ async def full_reasoning(
     agent_runs: list[AgentRun] = [analyzer_run]
 
     # --- agents (modality-aware; run in parallel) -------------------------
-    want_text = any(task.status == "executable" and task.modality == "text" for task in tasks)
-    want_table = any(task.status == "executable" and task.modality == "table" for task in tasks)
-    want_figure = any(task.status == "executable" and task.modality == "figure" for task in tasks)
+    wants = {task.modality for task in tasks if task.status == "executable"}
+    want_text = "text" in wants
+    want_table = (not single_agent_mode) and ("table" in wants)
+    want_figure = (not single_agent_mode) and ("figure" in wants)
+    # AB-O / systems A/B: explicit single-LLM path (no multi-agent aggregation)
 
     timeout = settings.agent_timeout_ms / 1000.0
     temp = settings.model_temperature

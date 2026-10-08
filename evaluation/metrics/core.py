@@ -212,20 +212,22 @@ def latency(timings_ms: list[dict[str, int]]) -> dict[str, Any]:
     if not timings_ms:
         return {"status": "not_available"}
 
-    totals = [int(entry.get("total", 0)) for entry in timings_ms]
-    analyze = [int(entry.get("analyze", 0)) for entry in timings_ms]
-    agents = [int(entry.get("agents", 0)) for entry in timings_ms]
-    verify = [int(entry.get("verify", 0)) for entry in timings_ms]
-    generate = [int(entry.get("generate", 0)) for entry in timings_ms]
+    totals = [int(v) for v in [int(entry.get("total", 0)) for entry in timings_ms] if v is not None]
+    analyze = [int(v) for v in [int(entry.get("analyze", 0)) for entry in timings_ms] if v is not None]
+    agents = [int(v) for v in [int(entry.get("agents", 0)) for entry in timings_ms] if v is not None]
+    verify = [int(v) for v in [int(entry.get("verify", 0)) for entry in timings_ms] if v is not None]
+    generate = [int(v) for v in [int(entry.get("generate", 0)) for entry in timings_ms] if v is not None]
 
     def _block(values: list[int]) -> dict[str, Any]:
         non_negative = [max(0, value) for value in values]
-        if not non_negative or all(value == 0 for value in non_negative):
+        if not non_negative:
             return {"p50": None, "p95": None, "mean": None, "n": len(values)}
+        # Keep p50/p95 meaningful on tiny fixture wall_ms; ``all==0`` is still a
+        # legitimate measurement (mock is fast), not "not_available".
         return {
             "p50": _percentile([float(value) for value in non_negative], 50),
             "p95": _percentile([float(value) for value in non_negative], 95),
-            "mean": statistics.fmean(non_negative),
+            "mean": statistics.fmean(non_negative) if sum(non_negative) >= 0 else None,
             "n": len(values),
         }
 
