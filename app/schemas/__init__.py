@@ -4,6 +4,7 @@ Import contracts from this package, not from individual modules, so the team
 has one stable surface to review.
 """
 
+from app.schemas.analysis import AnalyzeResponse, PlannedTask, TaskStatus
 from app.schemas.claims import AgentError, AgentRun, Claim, ClaimKind
 from app.schemas.common import AgentStatus, EvidenceType, Modality, TokenUsage
 from app.schemas.errors import CODE_TITLES, ErrorCode, ProblemDetail
@@ -46,6 +47,7 @@ __all__ = [
     "AgentRun",
     "AgentStatus",
     "AgentTask",
+    "AnalyzeResponse",
     "Claim",
     "ClaimKind",
     "ClaimVerification",
@@ -61,6 +63,7 @@ __all__ = [
     "ModelsResponse",
     "PaperRef",
     "PaperScope",
+    "PlannedTask",
     "ProblemDetail",
     "ProviderHealth",
     "QueryPlan",
@@ -74,6 +77,7 @@ __all__ = [
     "RoleInfo",
     "SubQuestion",
     "TableData",
+    "TaskStatus",
     "TokenUsage",
     "Verdict",
     "VerificationResult",

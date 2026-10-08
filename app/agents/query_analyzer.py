@@ -1,0 +1,211 @@
+"""Query Analyzer (ARCHITECTURE §4.1, PRD FR-1–FR-5).
+
+Classifies the question, detects required modalities, binds explicit target
+references ("Table 3", "Figure 5", ...), decomposes multi-part questions, and
+emits a schema-validated :class:`QueryPlan`.
+
+It NEVER answers the question — it only plans which agents should handle it.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+import structlog
+
+from app.agents.base import AgentContext, agent_error_from, complete_json, new_agent_run
+from app.models.base import ModelProvider
+from app.prompts.assembly import EvidenceContext, assemble_three_zone
+from app.prompts.loader import PromptTemplate, load_prompt
+from app.schemas.claims import AgentRun
+from app.schemas.evidence import EvidenceItem
+from app.schemas.query import AgentTask, QueryPlan, SubQuestion
+
+logger = structlog.get_logger(__name__)
+
+AGENT_NAME = "query_analyzer"
+PROMPT_VERSION = "query_analyzer/v1"
+
+# Deterministic reference hints: "Table 3", "table 4", "Figure 5", "fig. 2",
+# "figure 1", "Section 4.2", "eq. 7", "equation 3". Kept deliberately narrow
+# (DEVELOPMENT_PLAN Phase 2): hints only, the LLM binds semantics.
+_REFERENCE_PATTERNS: dict[str, re.Pattern[str]] = {
+    "table": re.compile(r"\btable\s+(\d+[A-Za-z]?(?:\.\d+)?)\b", re.IGNORECASE),
+    "figure": re.compile(r"\b(?:figure|fig\.?)\s+(\d+[A-Za-z]?(?:\.\d+)?)\b", re.IGNORECASE),
+    "section": re.compile(r"\bsection\s+(\d+(?:\.\d+)*)\b", re.IGNORECASE),
+    "equation": re.compile(r"\b(?:equation|eq\.?)\s+(\d+[A-Za-z]?(?:\.\d+)?)\b", re.IGNORECASE),
+}
+
+_CANONICAL_PREFIX = {"table": "Table", "figure": "Figure", "section": "Section", "equation": "Equation"}
+
+
+@dataclass(frozen=True)
+class ReferenceHint:
+    """One deterministic reference mention found in the question text."""
+
+    canonical: str  # e.g. "Table 3"
+    kind: str  # table | figure | section | equation
+
+
+def detect_reference_hints(question: str) -> list[ReferenceHint]:
+    """Extract explicit references (``Table 3``, ``Figure 5``) from the question.
+
+    Deterministic and conservative: returns what the text literally says, in
+    order of first appearance, deduplicated. No semantics attached.
+    """
+    found: list[tuple[int, ReferenceHint]] = []
+    for kind, pattern in _REFERENCE_PATTERNS.items():
+        for match in pattern.finditer(question):
+            canonical = f"{_CANONICAL_PREFIX[kind]} {match.group(1)}"
+            found.append((match.start(), ReferenceHint(canonical=canonical, kind=kind)))
+    found.sort(key=lambda item: item[0])
+    seen: set[str] = set()
+    hints: list[ReferenceHint] = []
+    for _, hint in found:
+        if hint.canonical not in seen:
+            seen.add(hint.canonical)
+            hints.append(hint)
+    return hints
+
+
+def default_plan(question: str, paper_ids: list[str] | None = None) -> QueryPlan:
+    """Conservative fallback when the model is unavailable or unusable.
+
+    Uses deterministic hints only and routes everything through text with a
+    low confidence, so the pipeline degrades honestly (ARCHITECTURE §4.7).
+    """
+    hints = detect_reference_hints(question)
+    modalities: list[str] = []
+    for hint in hints:
+        if hint.kind == "table" and "table" not in modalities:
+            modalities.append("table")
+        elif hint.kind == "figure" and "figure" not in modalities:
+            modalities.append("figure")
+    if not modalities:
+        modalities = ["text"]
+    elif "text" not in modalities:
+        modalities.append("text")
+
+    tasks = [
+        AgentTask(
+            task="answer from supplied evidence",
+            modality=modality,  # type: ignore[arg-type]
+            target_references=[h.canonical for h in hints],
+        )
+        for modality in modalities
+    ]
+    return QueryPlan(
+        question_type="other",
+        required_modalities=modalities,  # type: ignore[arg-type]
+        tasks=tasks,
+        target_references=[h.canonical for h in hints],
+        requires_cross_modal=len(modalities) > 1,
+        paper_scope="any",
+        paper_ids=list(paper_ids or []),
+        sub_questions=[],
+        confidence=0.4,
+    )
+
+
+def _hints_text(hints: list[ReferenceHint], evidence: tuple[EvidenceItem, ...]) -> str:
+    lines = ["Deterministic reference hints found in the question:"]
+    if hints:
+        lines.extend(f"- {hint.canonical} ({hint.kind})" for hint in hints)
+    else:
+        lines.append("- none")
+    lines.append("")
+    lines.append("Supplied evidence (ids and labels only — full text is analyzed by other agents):")
+    if evidence:
+        for item in evidence:
+            label = item.reference or f"page {item.page}" if item.page else item.evidence_id
+            lines.append(f"- {item.evidence_id}: type={item.type}, paper={item.paper_id}, label={label}")
+    else:
+        lines.append("- none")
+    paper_ids = sorted({item.paper_id for item in evidence})
+    lines.append("")
+    lines.append(f"paper_ids in evidence: {paper_ids if paper_ids else 'none'}")
+    return "\n".join(lines)
+
+
+class QueryAnalyzer:
+    """Classifies + decomposes the question into a :class:`QueryPlan`."""
+
+    name = AGENT_NAME
+
+    def __init__(self, provider: ModelProvider, *, prompt_version: str = "v1") -> None:
+        self._provider = provider
+        self._prompt_version = prompt_version
+        self._template: PromptTemplate | None = None
+
+    @property
+    def provider_name(self) -> str:
+        return self._provider.name
+
+    def _template_loaded(self) -> PromptTemplate:
+        if self._template is None:
+            self._template = load_prompt("query_analyzer", self._prompt_version)
+        return self._template
+
+    async def analyze(
+        self,
+        ctx: AgentContext,
+        evidence: tuple[EvidenceItem, ...] = (),
+    ) -> tuple[QueryPlan, AgentRun]:
+        """Produce a :class:`QueryPlan`, falling back honestly on failure."""
+        import time
+
+        started = time.perf_counter()
+        hints = detect_reference_hints(ctx.query)
+        template = self._template_loaded()
+
+        user_content = (
+            f"QUESTION:\n{ctx.query}\n\n{_hints_text(hints, evidence)}"
+        )
+        messages = assemble_three_zone(template, user_content, evidence=[])
+        # The analyzer only ever sees summaries (ids/labels), never evidence
+        # bodies — cheaper and a smaller injection surface (ARCHITECTURE §4.1).
+        system = messages[0].content
+        user = messages[1].content
+
+        try:
+            payload, response = await complete_json(
+                self._provider, system=system, user=user, ctx=ctx
+            )
+            plan = QueryPlan.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001 - fallback path is the contract
+            logger.warning(
+                "analyzer_fallback",
+                component="agents",
+                agent=self.name,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            plan = default_plan(
+                ctx.query, paper_ids=sorted({item.paper_id for item in evidence})
+            )
+            return plan, new_agent_run(
+                self.name,
+                ctx,
+                status="degraded",
+                started_s=started,
+                evidence_ids_used=[],
+                prompt_version=f"{self.name}/{template.version}",
+                error=agent_error_from(exc),
+            )
+
+        return plan, new_agent_run(
+            self.name,
+            ctx,
+            status="ok",
+            started_s=started,
+            findings=[],
+            evidence_ids_used=[],
+            prompt_version=f"{self.name}/{template.version}",
+            usage_prompt_tokens=response.usage.prompt_tokens,
+            usage_completion_tokens=response.usage.completion_tokens,
+        )
+
+    async def run(self, ctx: AgentContext) -> AgentRun:
+        """Protocol entrypoint: plan for ``ctx.evidence``, keep the run record."""
+        _, run_record = await self.analyze(ctx, ctx.evidence)
+        return run_record

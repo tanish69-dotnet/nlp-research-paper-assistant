@@ -16,7 +16,7 @@ from fastapi import FastAPI
 
 from app.api.errors import install_exception_handlers
 from app.api.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
-from app.api.routes import health, models
+from app.api.routes import analyze, health, models
 from app.config import Settings
 from app.models.routing import build_registry
 from app.observability.logging import setup_logging
@@ -98,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_exception_handlers(app)
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(models.router, prefix=API_PREFIX)
+    app.include_router(analyze.router, prefix=API_PREFIX)
     return app
 
 
