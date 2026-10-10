@@ -13,7 +13,7 @@ def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_setting_env(monkeypatch)
     settings = Settings(_env_file=None)
 
-    assert settings.api_port == 8000
+    assert settings.api_port == 8001
     assert settings.model_provider == "ollama"
     assert settings.ollama_base_url == "http://127.0.0.1:11434"
     assert settings.cors_origins == ["http://localhost:5173"]
@@ -69,7 +69,7 @@ def test_unrelated_environment_variables_are_ignored(
 
     settings = Settings(_env_file=None)
 
-    assert settings.api_port == 8000
+    assert settings.api_port == 8001
 
 
 def test_evidence_root_defaults_under_project(make_settings: object) -> None:

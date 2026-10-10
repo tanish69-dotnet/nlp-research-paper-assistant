@@ -20,10 +20,23 @@ ALLOWED_TYPES: set[str] = {"text", "table", "figure", "equation", "metadata"}
 
 
 def _clean_reference(source: dict[str, Any]) -> str | None:
-    for key in ("reference", "label", "figure_id", "table_id", "element_id"):
+    for key in ("reference", "label", "figure_id", "table_id"):
         value = source.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
+    # Derive a human-readable label from a caption that explicitly contains
+    # "Table N" / "Figure N" — only when the pattern is strong (no ambiguity).
+    # This is the correct source for table/figure ``reference`` (human label,
+    # not ``element_id``); element_id remains the stable ``evidence_id``.
+    caption = source.get("caption")
+    if isinstance(caption, str) and caption.strip():
+        match = re.search(r"\b(?:Table|Figure)\s*[0-9][0-9A-Za-z\-]*\b", caption, re.IGNORECASE)
+        if match:
+            return match.group(0)
+    # element_id as a final fallback (stable, but not a human label)
+    value = source.get("element_id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
     return None
 
 
@@ -62,11 +75,20 @@ def _evidence_type(source: dict[str, Any]) -> EvidenceType:
 
 
 def _evidence_id(source: dict[str, Any], paper_id: str, rank: int) -> str:
-    # Prefer Person 2 element_id (stable). Otherwise derive from stable source
-    # identifiers (paper + page + type + reference) — deterministic, idempotent.
+    is_element_id = source.get("element_id") not in (None, "")
+    is_evidence_id = source.get("evidence_id") not in (None, "")
+
     raw = source.get("evidence_id") or source.get("element_id") or source.get("id")
     if isinstance(raw, str) and raw.strip() and re.match(r"^[A-Za-z0-9][A-Za-z0-9_:.\-]{0,127}$", raw.strip()):
-        return raw.strip()
+        value = raw.strip()
+        # Genuine evidence_id (explicit evidence_id key) is kept verbatim.
+        if is_evidence_id:
+            return value
+        # Bare element_id (e.g. "elem_002") would collide across papers — namespace with paper_id.
+        # An element_id that already carries a namespace (contains ":") is left as-is.
+        if is_element_id and ":" not in value:
+            return f"{paper_id}:{value}"
+        return value
 
     parent = source.get("evidence_id_parent") or source.get("paper_id_source")
     seed = "|".join(
@@ -101,6 +123,25 @@ def _content(source: dict[str, Any]) -> str:
     if source.get("table_data") or source.get("image_path"):
         return ""
     return ""
+
+
+def _figure_content(source: dict[str, Any]) -> str:
+    """Preserve both ``content`` and figure ``context`` (Person 2's mention).
+
+    For type ``figure`` the upstream ``content`` is often ``""`` while
+    ``context`` holds the only surrounding sentence (e.g. "Figure 1
+    illustrates ..."). We keep both, never drop one.
+    """
+    content = _content(source)
+    context = source.get("context")
+    if not isinstance(context, str) or not context.strip():
+        return content
+    context = context.strip()
+    if not content:
+        return context
+    if content.strip() == context:
+        return content.strip()
+    return f"{content.strip()}\n{context}"
 
 
 def _section(source: dict[str, Any]) -> str | None:
@@ -181,7 +222,7 @@ def adapt_retrieval_record(source: dict[str, Any], paper_id_fallback: str, rank:
         evidence_id=evidence_id,
         paper_id=paper_id,
         type=raw_type,  # type: ignore[arg-type]
-        content=_content(source),
+        content=_figure_content(source),
         caption=_caption(source),
         reference=_clean_reference(source),
         page=page,
@@ -194,6 +235,7 @@ def adapt_retrieval_record(source: dict[str, Any], paper_id_fallback: str, rank:
         metadata={
             "retrieval_rank": rank,
             "expanded_via_cross_ref": bool(source.get("expanded_via_cross_ref", False)),
+            **({"cross_ref_trigger": str(source["cross_ref_trigger"])} if source.get("cross_ref_trigger") not in (None, "") else {}),
             **{
                 k: v
                 for k, v in (source.get("metadata") or {}).items()

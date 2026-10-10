@@ -50,3 +50,6 @@ logs/
 # --- Local agent tooling ---
 .kilo/
 .agent/
+
+# Person 2 retrieval project lives alongside this repo (do not commit it here)
+multimodal_rag_retrieval_person2/

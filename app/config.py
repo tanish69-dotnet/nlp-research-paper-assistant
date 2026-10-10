@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # --- runtime ------------------------------------------------------------
     reasoning_env: Environment = "local"
     api_host: str = "127.0.0.1"
-    api_port: int = Field(default=8000, ge=1, le=65535)
+    api_port: int = Field(default=8001, ge=1, le=65535)
     app_version: str = "0.1.0"
     log_level: LogLevel = "INFO"
     log_format: LogFormat = "json"
