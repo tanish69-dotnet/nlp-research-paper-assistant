@@ -16,7 +16,7 @@ from fastapi import FastAPI
 
 from app.api.errors import install_exception_handlers
 from app.api.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
-from app.api.routes import analyze, health, models, reason
+from app.api.routes import analyze, ask, health, models, reason
 from app.config import Settings
 from app.models.routing import build_registry
 from app.observability.logging import setup_logging
@@ -100,6 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router, prefix=API_PREFIX)
     app.include_router(analyze.router, prefix=API_PREFIX)
     app.include_router(reason.router, prefix=API_PREFIX)
+    app.include_router(ask.router, prefix=API_PREFIX)
     return app
 
 

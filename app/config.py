@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     max_request_bytes: int = Field(default=4 * 1024 * 1024, ge=128)
     max_context_tokens: int = Field(default=7_000, ge=256)
 
+    # --- retrieval (Person 2 service, Phase 8 /ask) --------------------------
+    retrieval_mode: Literal["disabled", "mock", "http"] = "disabled"
+    retrieval_base_url: str = "http://localhost:8000"
+    retrieval_timeout_s: float = Field(default=30.0, gt=0.0, le=300.0)
+    retrieval_top_k: int = Field(default=5, ge=1, le=50)
+
     # --- pipeline behaviour (consumed from Phase 2/4 onward) -----------------
     include_agent_outputs: bool = True
     confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -135,11 +141,6 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_to_none(cls, value: object) -> object:
         return None if value == "" else value
-
-    @field_validator("rag_base_url", mode="before")
-    @classmethod
-    def _strip_blank(cls, value: object) -> object:
-        return value.strip() if isinstance(value, str) else value
 
     # --- derived paths ------------------------------------------------------
     @property

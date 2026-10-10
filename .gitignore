@@ -26,7 +26,9 @@ evaluation/datasets/researchlens-xm/**
 evaluation/datasets/manifest.json
 evaluation/results/**
 !evaluation/results/.gitkeep
-evidence/
+# --- Data (paper corpora, raw run outputs) ---
+/evidence/
+evidence-data/
 *.pdf
 
 # --- Model / prompt artifacts ---
