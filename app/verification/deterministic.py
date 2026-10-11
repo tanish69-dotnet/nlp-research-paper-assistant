@@ -12,6 +12,12 @@ from typing import Literal
 
 from app.schemas.evidence import EvidenceBundle, TableData
 from app.schemas.claims import Claim
+from app.evidence.table_quality import (
+    claim_requires_table_values,
+    table_evidence_status,
+    table_evidence_supports_claim,
+    table_evidence_supports_values,
+)
 
 Verdict = Literal["SUPPORTED", "PARTIALLY_SUPPORTED", "UNSUPPORTED", "CONTRADICTED"]
 
@@ -25,7 +31,15 @@ _CANDIDATE_CELL_RE = re.compile(r"\b([0-9]+(?:\.[0-9]+)?)\b")
 
 def _parse_numbers_from_claim(text: str) -> list[float]:
     out: list[float] = []
-    for token in _CANDIDATE_CELL_RE.findall(text):
+    for match in _CANDIDATE_CELL_RE.finditer(text):
+        # Metric labels such as R10@1 contain digits that are not table cell
+        # values.  Likewise, Table 4 / Figure 5 are provenance references.
+        prefix = text[max(0, match.start() - 12) : match.start()].lower()
+        if match.start() > 0 and text[match.start() - 1] == "@":
+            continue
+        if re.search(r"(?:table|figure)\s*$", prefix):
+            continue
+        token = match.group(1)
         try:
             out.append(float(token))
         except ValueError:
@@ -117,10 +131,34 @@ def validate_against_bundle(
     if unknown:
         return "UNSUPPORTED", f"unknown evidence ids: {', '.join(unknown)}"
 
+    # A citation to a table is not proof that the table contains the values
+    # needed by a numerical/comparative claim.  This gate runs before the LLM
+    # Judge so model confidence cannot promote caption-only evidence.
+    if claim_requires_table_values(claim):
+        for item in bundle.evidence:
+            if item.evidence_id not in claim.evidence_ids or item.type != "table":
+                continue
+            if not table_evidence_supports_values(item):
+                status = table_evidence_status(item)
+                return (
+                    "UNSUPPORTED",
+                    f"table evidence {item.evidence_id} is {status}; "
+                    "numerical/comparative claims require table values or explicit comparison evidence",
+                )
+
     # Trusted structured table path: configured to be conservative (only a clear
     # numeric mismatch that spans authoritative cell evidence is a contradiction).
     contradicted, detail = maybe_contradicted_by_table(claim, bundle)
     if contradicted:
         return "CONTRADICTED", detail
+
+    if claim_requires_table_values(claim):
+        for item in bundle.evidence:
+            if item.evidence_id in claim.evidence_ids and item.type == "table":
+                if not table_evidence_supports_claim(item, claim):
+                    return (
+                        "UNSUPPORTED",
+                        f"table evidence {item.evidence_id} has no row label or matching value for the comparative claim",
+                    )
 
     return None, None

@@ -90,6 +90,48 @@ def test_no_table_evidence_is_no_evidence_status() -> None:
     assert agent_run.status == "no_evidence"
 
 
+def test_caption_only_table_is_not_sent_to_model_for_numeric_question() -> None:
+    caption_only = EvidenceItem(
+        evidence_id="e_t4",
+        paper_id="1611.04684v1",
+        type="table",
+        content="Type: Table\nCaption: Table 4: Evaluation results on response selection\nContext:",
+        caption="Table 4: Evaluation results on response selection",
+        reference="Table 4",
+        page=None,
+        metadata={"table_evidence_status": "caption_only"},
+    )
+    provider = MockModelProvider(
+        responses=[
+            (
+                "Table Reasoning Agent",
+                _findings(
+                    {
+                        "claim_id": "bad",
+                        "kind": "table_comparison",
+                        "text": "KEHNN is best",
+                        "evidence_ids": ["e_t4"],
+                        "confidence": 0.99,
+                    }
+                ),
+            )
+        ]
+    )
+
+    claims, agent_run = run(
+        TableAgent(provider).run_for_evidence(
+            _ctx(
+                "According to Table 4, which model performs best?",
+                evidence=(caption_only,),
+            )
+        )
+    )
+
+    assert claims == []
+    assert agent_run.status == "no_evidence"
+    assert provider.call_count == 0
+
+
 def test_author_claim_vs_comparison_kinds_allowed() -> None:
     provider = MockModelProvider(
         responses=[

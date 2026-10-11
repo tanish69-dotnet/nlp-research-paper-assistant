@@ -1,0 +1,45 @@
+{
+  "query": "According to Table 4 in paper 1611.04684v1, which model performs the best for response selection, and how can we tell?",
+  "papers": [
+    {
+      "paper_id": "1611.04684v1",
+      "title": "Knowledge Enhanced Hybrid Neural Network for Text Matching"
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "1611.04684v1:elem_004",
+      "paper_id": "1611.04684v1",
+      "type": "table",
+      "content": "| Model | R2@1 | R10@1 | R10@2 | R10@5 |\n|---|---:|---:|---:|---:|\n| MLP | 0.651 | 0.256 | 0.380 | 0.703 |\n| DeepMatchtopic | 0.593 | 0.345 | 0.376 | 0.693 |\n| Arc1 | 0.665 | 0.221 | 0.360 | 0.684 |\n| Arc2 | 0.736 | 0.380 | 0.534 | 0.777 |\n| CNTN | 0.743 | 0.349 | 0.512 | 0.797 |\n| MatchPyramid | 0.743 | 0.420 | 0.554 | 0.786 |\n| LSTM | 0.725 | 0.361 | 0.494 | 0.801 |\n| LSTMa | 0.758 | 0.381 | 0.545 | 0.801 |\n| MV-LSTM | 0.767 | 0.410 | 0.565 | 0.800 |\n| KEHNN | 0.786 | 0.460 | 0.591 | 0.819 |",
+      "table_data": {
+        "headers": ["Model", "R2@1", "R10@1", "R10@2", "R10@5"],
+        "rows": [
+          ["MLP", "0.651", "0.256", "0.380", "0.703"],
+          ["DeepMatchtopic", "0.593", "0.345", "0.376", "0.693"],
+          ["Arc1", "0.665", "0.221", "0.360", "0.684"],
+          ["Arc2", "0.736", "0.380", "0.534", "0.777"],
+          ["CNTN", "0.743", "0.349", "0.512", "0.797"],
+          ["MatchPyramid", "0.743", "0.420", "0.554", "0.786"],
+          ["LSTM", "0.725", "0.361", "0.494", "0.801"],
+          ["LSTMa", "0.758", "0.381", "0.545", "0.801"],
+          ["MV-LSTM", "0.767", "0.410", "0.565", "0.800"],
+          ["KEHNN", "0.786", "0.460", "0.591", "0.819"]
+        ],
+        "caption": "Table 4: Evaluation results on response selection"
+      },
+      "caption": "Table 4: Evaluation results on response selection",
+      "reference": "Table 4",
+      "page": null,
+      "metadata": {
+        "source": "arXiv:1611.04684v1",
+        "source_location": "Table 4"
+      }
+    }
+  ],
+  "retrieval": {
+    "retriever": "phase9e_complete_fixture",
+    "top_k": 1,
+    "run_id": "phase9e-table4-complete"
+  }
+}

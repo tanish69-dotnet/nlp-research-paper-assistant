@@ -201,6 +201,160 @@ def test_contradiction_from_authoritative_table_is_deterministic() -> None:
     assert provider.call_count == 0
 
 
+def test_caption_only_table_comparison_is_unsupported_without_llm_call() -> None:
+    """A Table 4 citation cannot support a comparison when only its caption arrived."""
+    provider = MockModelProvider(
+        responses=[
+            (
+                "Judge",
+                json.dumps(
+                    {
+                        "verdicts": [
+                            {
+                                "claim_id": "cl1",
+                                "verdict": "SUPPORTED",
+                                "rationale": "the citation is Table 4",
+                                "evidence_ids_support": ["e_t4"],
+                                "evidence_ids_contradict": [],
+                                "missing_aspects": [],
+                            }
+                        ]
+                    }
+                ),
+            )
+        ]
+    )
+    bundle = EvidenceBundle(
+        evidence=[
+            EvidenceItem(
+                evidence_id="e_t4",
+                paper_id="1611.04684v1",
+                type="table",
+                content="Type: Table\nCaption: Table 4: Evaluation results on response selection\nContext:",
+                caption="Table 4: Evaluation results on response selection",
+                reference="Table 4",
+                page=None,
+            )
+        ]
+    )
+    claim = _claim_text(
+        ["e_t4"],
+        text="The KEHNN model performs best because it has the highest scores across all response-selection metrics.",
+        kind="table_comparison",
+    )
+
+    verifications, _ = run(JudgeAgent(provider).judge([claim], bundle, _ctx([claim], bundle)))
+
+    assert verifications[0].verdict == "UNSUPPORTED"
+    assert "caption_only" in verifications[0].rationale
+    assert provider.call_count == 0
+
+
+def test_complete_table_values_allow_grounded_comparison_to_reach_judge() -> None:
+    """Structured rows keep a correctly evidenced comparison on the normal path."""
+    provider = MockModelProvider(
+        responses=[
+            (
+                "Judge",
+                json.dumps(
+                    {
+                        "verdicts": [
+                            {
+                                "claim_id": "cl1",
+                                "verdict": "SUPPORTED",
+                                "rationale": "KEHNN is highest in every supplied metric",
+                                "evidence_ids_support": ["e_t4"],
+                                "evidence_ids_contradict": [],
+                                "missing_aspects": [],
+                            }
+                        ]
+                    }
+                ),
+            )
+        ]
+    )
+    bundle = EvidenceBundle(
+        evidence=[
+            EvidenceItem(
+                evidence_id="e_t4",
+                paper_id="1611.04684v1",
+                type="table",
+                content="| Model | R2@1 | R10@1 |\n|---|---:|---:|\n| KEHNN | 0.786 | 0.460 |",
+                table_data=TableData(
+                    headers=["Model", "R2@1", "R10@1"],
+                    rows=[["KEHNN", "0.786", "0.460"], ["LSTM", "0.725", "0.361"]],
+                    caption="Table 4: Evaluation results on response selection",
+                ),
+                caption="Table 4: Evaluation results on response selection",
+                reference="Table 4",
+                page=None,
+            )
+        ]
+    )
+    claim = _claim_text(
+        ["e_t4"],
+        text="KEHNN performs best with the highest R2@1 and R10@1 values.",
+        kind="table_comparison",
+    )
+
+    verifications, _ = run(JudgeAgent(provider).judge([claim], bundle, _ctx([claim], bundle)))
+
+    assert verifications[0].verdict == "SUPPORTED"
+    assert provider.call_count == 1
+
+
+def test_comparison_claim_for_absent_model_is_unsupported_even_with_table_citation() -> None:
+    provider = MockModelProvider(
+        responses=[
+            (
+                "Judge",
+                json.dumps(
+                    {
+                        "verdicts": [
+                            {
+                                "claim_id": "cl1",
+                                "verdict": "SUPPORTED",
+                                "rationale": "the table was cited",
+                                "evidence_ids_support": ["e_t4"],
+                                "evidence_ids_contradict": [],
+                                "missing_aspects": [],
+                            }
+                        ]
+                    }
+                ),
+            )
+        ]
+    )
+    bundle = EvidenceBundle(
+        evidence=[
+            EvidenceItem(
+                evidence_id="e_t4",
+                paper_id="p1",
+                type="table",
+                content="| Model | Score |\n|---|---:|\n| KEHNN | 0.819 |",
+                table_data=TableData(
+                    headers=["Model", "Score"],
+                    rows=[["KEHNN", "0.819"]],
+                    caption="Table 4: Results",
+                ),
+                caption="Table 4: Results",
+                reference="Table 4",
+            )
+        ]
+    )
+    claim = _claim_text(
+        ["e_t4"],
+        text="OtherModel performs best with the highest score.",
+        kind="table_comparison",
+    )
+
+    verifications, _ = run(JudgeAgent(provider).judge([claim], bundle, _ctx([claim], bundle)))
+
+    assert verifications[0].verdict == "UNSUPPORTED"
+    assert "row label" in verifications[0].rationale
+    assert provider.call_count == 0
+
+
 # --- vision precision --------------------------------------------------------
 
 def test_vision_approximate_numbers_not_marked_contradicted_when_no_exact_table() -> None:

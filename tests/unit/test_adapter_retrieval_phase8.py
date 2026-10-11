@@ -44,6 +44,67 @@ def test_adapter_preserves_cross_ref_provenance():
     assert item.metadata["expanded_via_cross_ref"] is True
 
 
+def test_adapter_marks_caption_only_table_as_incomplete():
+    raw = {
+        "paper_id": "1611.04684v1",
+        "element_id": "elem_004",
+        "type": "table",
+        "content": "Type: Table\nCaption: Table 4: Evaluation results on response selection\nContext: ",
+        "caption": "Table 4: Evaluation results on response selection",
+        "page": None,
+        "image_path": None,
+    }
+
+    item = adapt_retrieval_record(raw, paper_id_fallback="retrieved", rank=0)
+
+    assert item.table_data is None
+    assert item.metadata["table_evidence_status"] == "caption_only"
+    assert item.reference == "Table 4"
+    assert item.page is None
+
+
+def test_adapter_preserves_complete_structured_table_data():
+    raw = {
+        "paper_id": "p1",
+        "element_id": "t1",
+        "type": "table",
+        "content": "| Model | Score |\n|---|---:|\n| KEHNN | 0.819 |",
+        "caption": "Table 4: Results",
+        "table_data": {
+            "headers": ["Model", "Score"],
+            "rows": [["KEHNN", "0.819"]],
+            "caption": "Table 4: Results",
+        },
+    }
+
+    item = adapt_retrieval_record(raw, paper_id_fallback="p1", rank=0)
+
+    assert item.table_data is not None
+    assert item.table_data.rows == [["KEHNN", "0.819"]]
+    assert item.metadata["table_evidence_status"] == "complete"
+
+
+def test_adapter_preserves_partial_table_extraction_as_incomplete():
+    raw = {
+        "paper_id": "p1",
+        "element_id": "t1",
+        "type": "table",
+        "content": "| Model | Score |\n|---|---:|\n| KEHNN | 0.819 |",
+        "caption": "Table 4: Results",
+        "table_data": {
+            "headers": ["Model", "Score"],
+            "rows": [["KEHNN", "0.819"]],
+            "caption": "Table 4: Results",
+        },
+        "metadata": {"table_extraction": "partial"},
+    }
+
+    item = adapt_retrieval_record(raw, paper_id_fallback="p1", rank=0)
+
+    assert item.metadata["table_extraction"] == "partial"
+    assert item.metadata["table_evidence_status"] == "incomplete"
+
+
 def test_adapter_rejects_none_payload():
     with pytest.raises(ValueError):
         adapt_retrieval_response(None)

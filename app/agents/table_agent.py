@@ -20,6 +20,7 @@ from app.agents.table_ops import (
     numeric_ranking,
 )
 from app.core.errors import EvidenceInvalidError
+from app.evidence.table_quality import table_evidence_status, table_evidence_supports_values
 from app.models.base import ModelProvider
 from app.prompts.assembly import EvidenceContext, assemble_three_zone
 from app.prompts.loader import load_prompt
@@ -172,6 +173,30 @@ class TableAgent:
                 prompt_version=PROMPT_VERSION,
             )
 
+        # A caption-only table remains searchable, but must not be handed to a
+        # model for a numerical/comparative question.  The deterministic Judge
+        # has the same gate for callers that bypass this agent guard.
+        if any(not table_evidence_supports_values(item) for item in items) and _requires_table_values(ctx.query):
+            incomplete = [
+                f"{item.evidence_id}={table_evidence_status(item)}"
+                for item in items
+                if not table_evidence_supports_values(item)
+            ]
+            logger.info(
+                "table_agent_incomplete_evidence",
+                component="agents",
+                request_id=ctx.request_id,
+                evidence=incomplete,
+            )
+            return [], new_agent_run(
+                AGENT_NAME,
+                ctx,
+                status="no_evidence",
+                started_s=started,
+                evidence_ids_used=list(known_ids),
+                prompt_version=PROMPT_VERSION,
+            )
+
         evidence_ctx, table_items = self._evidence_contexts(evidence, max_chars_per_item)
         trace_lines = self._deterministic_trace(table_items, ctx.query)
 
@@ -238,3 +263,17 @@ class TableAgent:
     async def run(self, ctx: AgentContext) -> AgentRun:
         _, run = await self.run_for_evidence(ctx, ctx.evidence)
         return run
+
+
+def _requires_table_values(query: str) -> bool:
+    """Conservative routing guard for value/comparison table questions."""
+    import re
+
+    return bool(
+        re.search(
+            r"\b(?:best|better|highest|lowest|higher|lower|outperform|"
+            r"performance|accuracy|score|metric|rank(?:ed|ing)?|compare|which model|which method)\b",
+            query or "",
+            re.IGNORECASE,
+        )
+    )

@@ -15,6 +15,10 @@ from typing import Any
 
 from app.schemas.common import EvidenceType
 from app.schemas.evidence import EvidenceBundle, EvidenceItem, ImageRef, PaperRef, TableData
+from app.evidence.table_quality import (
+    TABLE_EVIDENCE_STATUS_KEY,
+    classify_table_evidence,
+)
 
 ALLOWED_TYPES: set[str] = {"text", "table", "figure", "equation", "metadata"}
 
@@ -211,6 +215,8 @@ def adapt_retrieval_record(source: dict[str, Any], paper_id_fallback: str, rank:
         page = None
 
     image = _image(source)
+    content = _figure_content(source)
+    table_data = _table_data(source)
     if raw_type != "figure" and image is not None:
         # A stray image_path on a "text" record is still meaningful — keep it.
         pass
@@ -218,30 +224,46 @@ def adapt_retrieval_record(source: dict[str, Any], paper_id_fallback: str, rank:
         # Keep it — the vision pipeline will choose by ``type`` anyway.
         pass
 
+    metadata = {
+        "retrieval_rank": rank,
+        "expanded_via_cross_ref": bool(source.get("expanded_via_cross_ref", False)),
+        **({"cross_ref_trigger": str(source["cross_ref_trigger"])} if source.get("cross_ref_trigger") not in (None, "") else {}),
+        **{
+            k: v
+            for k, v in (source.get("metadata") or {}).items()
+            if not k.startswith("__")
+        },
+    }
+    if raw_type == "table":
+        upstream_metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+        declared_status = (
+            metadata.get(TABLE_EVIDENCE_STATUS_KEY)
+            or source.get(TABLE_EVIDENCE_STATUS_KEY)
+            or upstream_metadata.get("table_extraction")
+        )
+        metadata[TABLE_EVIDENCE_STATUS_KEY] = classify_table_evidence(
+            table_data=table_data,
+            content=content,
+            caption=_caption(source),
+            image_present=image is not None,
+            declared_status=declared_status,
+        )
+
     return EvidenceItem(
         evidence_id=evidence_id,
         paper_id=paper_id,
         type=raw_type,  # type: ignore[arg-type]
-        content=_figure_content(source),
+        content=content,
         caption=_caption(source),
         reference=_clean_reference(source),
         page=page,
         section=_section(source),
-        table_data=_table_data(source),
+        table_data=table_data,
         image=image,
         char_span=_char_span(source),
         score=_score(source),
         truncated=bool(source.get("truncated", False)),
-        metadata={
-            "retrieval_rank": rank,
-            "expanded_via_cross_ref": bool(source.get("expanded_via_cross_ref", False)),
-            **({"cross_ref_trigger": str(source["cross_ref_trigger"])} if source.get("cross_ref_trigger") not in (None, "") else {}),
-            **{
-                k: v
-                for k, v in (source.get("metadata") or {}).items()
-                if not k.startswith("__")
-            },
-        },
+        metadata=metadata,
     )
 
 
