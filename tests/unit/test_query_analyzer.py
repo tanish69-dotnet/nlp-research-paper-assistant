@@ -149,6 +149,39 @@ def test_analyzer_recognizes_table_reference() -> None:
     assert "Table 4" in plan.target_references
 
 
+def test_analyzer_does_not_keep_arxiv_id_as_target_reference() -> None:
+    provider = MockModelProvider(
+        responses=[
+            (
+                "1611.04684v1",
+                _valid_plan(
+                    question_type="definition",
+                    required_modalities=["text"],
+                    tasks=[
+                        {
+                            "task": "define contribution",
+                            "modality": "text",
+                            "target_references": ["1611.04684v1"],
+                        }
+                    ],
+                    target_references=["1611.04684v1"],
+                    paper_scope="single",
+                    paper_ids=["1611.04684v1"],
+                ),
+            )
+        ]
+    )
+    plan, _ = run(
+        QueryAnalyzer(provider).analyze(
+            _ctx("What is the main contribution of paper 1611.04684v1?")
+        )
+    )
+
+    assert plan.paper_ids == ["1611.04684v1"]
+    assert plan.target_references == []
+    assert plan.tasks[0].target_references == []
+
+
 def test_analyzer_mixed_table_and_figure_is_cross_modal() -> None:
     provider = MockModelProvider(
         responses=[

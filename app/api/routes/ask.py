@@ -9,9 +9,10 @@ resolution.
 from __future__ import annotations
 
 import time
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.api.dependencies import get_registry, get_request_id, get_settings
 from app.config import Settings
@@ -24,6 +25,7 @@ from app.core.errors import (
 from app.evidence.retrieval_client import (
     RetrievalRequest,
     build_retrieval_provider,
+    infer_paper_ids,
 )
 from app.evidence.adapter import adapt_retrieval_response
 from app.models.routing import ModelRegistry
@@ -40,6 +42,11 @@ class AskRequest(BaseModel):
 
     query: str = Field(min_length=1)
     top_k: int | None = Field(default=None, ge=1, le=50)
+    paper_ids: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]] | None = Field(
+        default=None,
+        max_length=50,
+        description="Exact retrieval paper IDs. Omit to use arXiv IDs in the query; [] searches all papers.",
+    )
     request_id: str | None = None
 
 
@@ -70,6 +77,7 @@ async def ask(
     provider = build_retrieval_provider(settings)
     top_k = body.top_k if body.top_k is not None else settings.retrieval_top_k
     timeout = settings.retrieval_timeout_s
+    paper_ids = tuple(body.paper_ids) if body.paper_ids is not None else infer_paper_ids(body.query)
     request_id = get_request_id(request)
     started = time.perf_counter()
 
@@ -77,7 +85,12 @@ async def ask(
     # into a user-facing ProblemDetail (no internal detail leak).
     try:
         raw = await provider.retrieve(
-            RetrievalRequest(query=body.query, top_k=top_k, timeout_s=timeout)
+            RetrievalRequest(
+                query=body.query,
+                top_k=top_k,
+                timeout_s=timeout,
+                paper_ids=paper_ids,
+            )
         )
     except (ModelTimeoutError, ModelUnavailableError):
         raise

@@ -6,10 +6,12 @@ no Person 2 service required.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import httpx
 
-from app.evidence.retrieval_client import HttpRetrievalProvider, RetrievalRequest
+from app.evidence.retrieval_client import HttpRetrievalProvider, RetrievalRequest, infer_paper_ids
 
 pytestmark = pytest.mark.unit
 
@@ -24,6 +26,7 @@ def _capture_handler(captured: dict, payload: dict | None = None):
     async def handler(request: httpx.Request) -> httpx.Response:
         captured["url"] = str(request.url)
         captured["method"] = request.method
+        captured["json"] = json.loads(request.content) if request.content else None
         if payload is not None:
             return httpx.Response(200, json=payload)
         return httpx.Response(200, json={"evidence": []})
@@ -50,6 +53,40 @@ def test_retrieve_calls_correct_url():
     _run(provider.retrieve(RetrievalRequest(query="Q", top_k=3, timeout_s=5.0)))
     assert captured["url"] == "http://127.0.0.1:8000/retrieve"
     assert captured["method"] == "POST"
+    assert captured["json"] == {"query": "Q", "top_k": 3}
+
+
+def test_retrieve_forwards_explicit_paper_ids():
+    captured: dict = {}
+    handler = _capture_handler(captured, {"evidence": []})
+    provider = _provider()
+    provider._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    _run(
+        provider.retrieve(
+            RetrievalRequest(
+                query="main contribution",
+                top_k=5,
+                timeout_s=5.0,
+                paper_ids=("1611.04684v1",),
+            )
+        )
+    )
+
+    assert captured["json"] == {
+        "query": "main contribution",
+        "top_k": 5,
+        "paper_ids": ["1611.04684v1"],
+    }
+
+
+def test_infer_paper_ids_is_narrow_and_deduplicated():
+    assert infer_paper_ids("Compare arXiv:1611.04684v1 with 1611.04684v1") == (
+        "1611.04684v1",
+    )
+    assert infer_paper_ids("What is the contribution?") == ()
 
 
 def test_trailing_slash_base_url_does_not_double_slash():

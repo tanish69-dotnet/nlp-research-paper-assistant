@@ -38,6 +38,34 @@ _REFERENCE_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 _CANONICAL_PREFIX = {"table": "Table", "figure": "Figure", "section": "Section", "equation": "Equation"}
+_PAPER_ID_REFERENCE_RE = re.compile(
+    r"^\s*(?:arxiv:)?\d{4}\.\d{4,5}(?:v\d+)?\s*$", re.IGNORECASE
+)
+
+
+def _is_paper_id_reference(value: str) -> bool:
+    """Paper identity is not a table/figure citation reference."""
+    return bool(_PAPER_ID_REFERENCE_RE.match(value or ""))
+
+
+def _remove_paper_ids_from_references(plan: QueryPlan) -> QueryPlan:
+    """Normalize model plans that echo a paper ID as a target reference."""
+    references = [ref for ref in plan.target_references if not _is_paper_id_reference(ref)]
+    tasks = [
+        task.model_copy(
+            update={
+                "target_references": [
+                    ref for ref in task.target_references if not _is_paper_id_reference(ref)
+                ]
+            }
+        )
+        for task in plan.tasks
+    ]
+    changed = references != plan.target_references or any(
+        before.target_references != after.target_references
+        for before, after in zip(plan.tasks, tasks)
+    )
+    return plan.model_copy(update={"target_references": references, "tasks": tasks}) if changed else plan
 
 
 @dataclass(frozen=True)
@@ -172,7 +200,7 @@ class QueryAnalyzer:
             payload, response = await complete_json(
                 self._provider, system=system, user=user, ctx=ctx
             )
-            plan = QueryPlan.model_validate(payload)
+            plan = _remove_paper_ids_from_references(QueryPlan.model_validate(payload))
         except Exception as exc:  # noqa: BLE001 - fallback path is the contract
             logger.warning(
                 "analyzer_fallback",

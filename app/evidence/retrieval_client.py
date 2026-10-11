@@ -8,6 +8,7 @@ protocol; swapping backends changes config, not orchestration logic.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import warnings
 from abc import ABC, abstractmethod
@@ -28,6 +29,27 @@ class RetrievalRequest:
     query: str
     top_k: int
     timeout_s: float
+    paper_ids: tuple[str, ...] = ()
+
+
+_ARXIV_ID_RE = re.compile(r"\b(?:arxiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)\b", re.IGNORECASE)
+
+
+def infer_paper_ids(query: str) -> tuple[str, ...]:
+    """Extract literal modern arXiv IDs, without guessing versions or aliases.
+
+    Person 2 uses exact paper-ID filters. An explicit ``paper_ids`` request
+    overrides this convenience inference, including an empty list for a broad
+    search. IDs are taken from user input, never from generated model output.
+    """
+    seen: set[str] = set()
+    ids: list[str] = []
+    for match in _ARXIV_ID_RE.finditer(query or ""):
+        paper_id = match.group(1).lower()
+        if paper_id not in seen:
+            seen.add(paper_id)
+            ids.append(paper_id)
+    return tuple(ids)
 
 
 @dataclass
@@ -151,9 +173,12 @@ class HttpRetrievalProvider(RetrievalProvider):
         started = time.perf_counter()
 
         try:
+            payload: dict[str, Any] = {"query": request.query, "top_k": request.top_k}
+            if request.paper_ids:
+                payload["paper_ids"] = list(request.paper_ids)
             response = await client.post(
                 self._retrieve_url(),
-                json={"query": request.query, "top_k": request.top_k},
+                json=payload,
                 timeout=timeout,
             )
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
