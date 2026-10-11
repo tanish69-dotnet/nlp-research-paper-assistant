@@ -303,6 +303,56 @@ def test_complete_table_values_allow_grounded_comparison_to_reach_judge() -> Non
     assert provider.call_count == 1
 
 
+def test_table_claim_paper_id_is_not_treated_as_a_numeric_cell() -> None:
+    provider = MockModelProvider(
+        responses=[
+            (
+                "Judge",
+                json.dumps(
+                    {
+                        "verdicts": [
+                            {
+                                "claim_id": "cl1",
+                                "verdict": "SUPPORTED",
+                                "rationale": "The row is present in the table.",
+                                "evidence_ids_support": ["e_t4"],
+                                "evidence_ids_contradict": [],
+                                "missing_aspects": [],
+                            }
+                        ]
+                    }
+                ),
+            )
+        ]
+    )
+    bundle = EvidenceBundle(
+        evidence=[
+            EvidenceItem(
+                evidence_id="e_t4",
+                paper_id="1611.04684v1",
+                type="table",
+                content="| Model | R2@1 |\n|---|---:|\n| KEHNN | 0.786 |",
+                table_data=TableData(
+                    headers=["Model", "R2@1"],
+                    rows=[["KEHNN", "0.786"]],
+                    caption="Table 4: Evaluation results on response selection",
+                ),
+                caption="Table 4: Evaluation results on response selection",
+                reference="Table 4",
+            )
+        ]
+    )
+    claim = _claim_text(
+        ["e_t4"],
+        text="KEHNN performs best in paper 1611.04684v1.",
+        kind="table_observation",
+    )
+
+    verifications, _ = run(JudgeAgent(provider).judge([claim], bundle, _ctx([claim], bundle)))
+
+    assert verifications[0].verdict != "CONTRADICTED"
+
+
 def test_comparison_claim_for_absent_model_is_unsupported_even_with_table_citation() -> None:
     provider = MockModelProvider(
         responses=[

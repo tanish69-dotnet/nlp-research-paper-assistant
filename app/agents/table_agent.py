@@ -106,7 +106,10 @@ class TableAgent:
                 if col.strip().lower() in query_lower:
                     focused.append(col)
             if not focused and any(w in query_lower for w in ("best", "highest", "lowest", "most", "rank", "top", "winning")):
-                focused = numeric_cols[:1]
+                # A broad "which model is best" question should expose every
+                # numeric metric, so the model can verify consistency across
+                # the table instead of seeing only an arbitrary first column.
+                focused = numeric_cols
             if not focused and numeric_cols:
                 focused = numeric_cols[:1]
 

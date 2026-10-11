@@ -7,6 +7,7 @@ without an LLM. The LLM interprets the result — it never replaces it
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -102,6 +103,8 @@ def infer_metric_direction(caption: str | None, header: str | None) -> bool | No
     ``None`` when ambiguous.
     """
     text = f"{_normalize(caption)} {_normalize(header)}"
+    if re.fullmatch(r"r\s*\d+\s*@\s*\d+", _normalize(header)):
+        return True
     if any(keyword in text for keyword in _HIGHER_BETTER):
         # disambiguate "error" vs "accuracy" when both appear — error wins
         if any(k in text for k in _LOWER_BETTER) and "error" in text:

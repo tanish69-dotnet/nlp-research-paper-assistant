@@ -27,15 +27,18 @@ def claim_has_unknown_evidence(claim: Claim, supply: set[str]) -> list[str]:
 
 
 _CANDIDATE_CELL_RE = re.compile(r"\b([0-9]+(?:\.[0-9]+)?)\b")
+_METRIC_LABEL_RE = re.compile(r"\bR\s*\d+\s*@\s*\d+\b", re.IGNORECASE)
+_PAPER_ID_RE = re.compile(r"\b\d{4}\.\d{4,5}(?:v\d+)?\b", re.IGNORECASE)
 
 
 def _parse_numbers_from_claim(text: str) -> list[float]:
     out: list[float] = []
-    for match in _CANDIDATE_CELL_RE.finditer(text):
+    scrubbed = _PAPER_ID_RE.sub("", _METRIC_LABEL_RE.sub("", text or ""))
+    for match in _CANDIDATE_CELL_RE.finditer(scrubbed):
         # Metric labels such as R10@1 contain digits that are not table cell
         # values.  Likewise, Table 4 / Figure 5 are provenance references.
-        prefix = text[max(0, match.start() - 12) : match.start()].lower()
-        if match.start() > 0 and text[match.start() - 1] == "@":
+        prefix = scrubbed[max(0, match.start() - 12) : match.start()].lower()
+        if match.start() > 0 and scrubbed[match.start() - 1] == "@":
             continue
         if re.search(r"(?:table|figure)\s*$", prefix):
             continue

@@ -56,6 +56,7 @@ def test_infer_direction_higher_is_better() -> None:
     assert infer_metric_direction("accuracy comparison", "Accuracy (%)") is True
     assert infer_metric_direction("F1 on dev", "F1") is True
     assert infer_metric_direction("BLEU scores", "BLEU") is True
+    assert infer_metric_direction("response selection", "R10@1") is True
 
 
 def test_infer_direction_lower_is_better() -> None:

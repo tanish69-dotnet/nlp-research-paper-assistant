@@ -45,6 +45,8 @@ _COMPARATIVE_TERMS = re.compile(
     re.IGNORECASE,
 )
 _NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
+_METRIC_LABEL = re.compile(r"\bR\s*\d+\s*@\s*\d+\b", re.IGNORECASE)
+_PAPER_ID = re.compile(r"\b\d{4}\.\d{4,5}(?:v\d+)?\b", re.IGNORECASE)
 
 
 def _table_data_has_values(table_data: TableData | None) -> bool:
@@ -162,9 +164,10 @@ def table_evidence_supports_claim(item: EvidenceItem, claim: Any) -> bool:
     # concrete value but use a narrative label such as "we" instead of the
     # table's row label.  A value must actually occur in the cited table.
     claim_values: list[float] = []
-    for match in _NUMBER.finditer(text):
-        prefix = text[max(0, match.start() - 12) : match.start()]
-        if (match.start() > 0 and text[match.start() - 1] == "@") or re.search(
+    scrubbed = _PAPER_ID.sub("", _METRIC_LABEL.sub("", text or ""))
+    for match in _NUMBER.finditer(scrubbed):
+        prefix = scrubbed[max(0, match.start() - 12) : match.start()]
+        if (match.start() > 0 and scrubbed[match.start() - 1] == "@") or re.search(
             r"(?:table|figure)\s*$", prefix, re.IGNORECASE
         ):
             continue
