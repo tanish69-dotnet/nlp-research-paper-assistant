@@ -136,6 +136,13 @@ class HttpRetrievalProvider(RetrievalProvider):
             self._client = httpx.AsyncClient(base_url=self._base_url)
         return self._client
 
+    # Build absolute URLs once to avoid any base_url / leading-slash ambiguity.
+    def _retrieve_url(self) -> str:
+        return f"{self._base_url}/retrieve"
+
+    def _health_url(self) -> str:
+        return f"{self._base_url}/health"
+
     async def retrieve(self, request) -> RetrievalResponse:
         from app.evidence.adapter import adapt_retrieval_response
 
@@ -145,7 +152,7 @@ class HttpRetrievalProvider(RetrievalProvider):
 
         try:
             response = await client.post(
-                "/retrieve",
+                self._retrieve_url(),
                 json={"query": request.query, "top_k": request.top_k},
                 timeout=timeout,
             )
@@ -178,7 +185,7 @@ class HttpRetrievalProvider(RetrievalProvider):
     async def health(self) -> bool:
         try:
             client = await self._get_client()
-            response = await client.get("/health", timeout=5.0)
+            response = await client.get(self._health_url(), timeout=5.0)
             return response.status_code == 200
         except Exception:
             return False
