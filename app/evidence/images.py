@@ -24,9 +24,55 @@ ALLOWED_EXTENSIONS: dict[str, str] = {
 
 _MIME_FOR_EXTENSION = {ext: mime for ext, mime in ALLOWED_EXTENSIONS.items()}
 
+#: Longest side allowed when preparing an image for a vision model.
+#: Phase 9K Stage 1 finding: a 4617x1674 diagram truncates qwen2.5vl:3b's
+#: answer (``done_reason: length``) while a 1568px version completes.
+VISION_MAX_SIDE_PX = 1568
+
 
 def _mime_for_path(path: Path) -> str | None:
     return _MIME_FOR_EXTENSION.get(path.suffix.lower())
+
+
+def preprocess_for_vision(data: bytes, suffix: str) -> tuple[bytes, str, tuple[int, int], tuple[int, int]]:
+    """Downscale an image copy for vision inference (never mutates the source).
+
+    - Decodes with Pillow (required here; raises ``EvidenceInvalidError``
+      when Pillow is missing or the bytes do not decode).
+    - Never upscales: images at or under ``VISION_MAX_SIDE_PX`` pass through.
+    - Preserves aspect ratio; PNG output stays PNG, other formats are
+      re-encoded as PNG for provider compatibility.
+    - Returns ``(data, mime, original_size, new_size)``.
+
+    Raises ``EvidenceInvalidError`` for undecodable/corrupt bytes.
+    """
+    from PIL import Image  # type: ignore[import-not-found]
+    import io
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            original = (int(image.width), int(image.height))
+            longest = max(original)
+            if longest <= VISION_MAX_SIDE_PX:
+                out = io.BytesIO()
+                fmt = "PNG" if suffix.lower() == ".png" else "PNG"
+                image.save(out, fmt)
+                return out.getvalue(), "image/png", original, original
+            scale = VISION_MAX_SIDE_PX / float(longest)
+            new_size = (max(1, int(original[0] * scale)), max(1, int(original[1] * scale)))
+            resized = image.resize(new_size, Image.LANCZOS)
+            out = io.BytesIO()
+            resized.save(out, "PNG")
+            return out.getvalue(), "image/png", original, new_size
+    except EvidenceInvalidError:
+        raise
+    except ImportError as exc:
+        raise EvidenceInvalidError(
+            "Pillow is required for vision preprocessing but is not installed"
+        ) from exc
+    except Exception as exc:
+        raise EvidenceInvalidError(f"image bytes do not decode: {exc}") from exc
 
 
 def validate_image_bytes(data: bytes, suffix: str, settings: Settings) -> str:
@@ -101,6 +147,22 @@ def encode_file_for_provider(path: Path, settings: Settings) -> tuple[str, str]:
     return base64.b64encode(data).decode("ascii"), mime
 
 
+def encode_file_for_vision(path: Path, settings: Settings) -> tuple[str, str, tuple[int, int], tuple[int, int]]:
+    """Read a file, validate, downscale for vision, and base64-encode.
+
+    Returns ``(b64, mime, original_size, new_size)``. The source file is never
+    modified; only an in-memory copy is resized.
+    """
+    suffix = path.suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise EvidenceInvalidError(f"unsupported image format {suffix!r}")
+    data = path.read_bytes()
+    validate_image_bytes(data, suffix, settings)
+    processed, mime, original, new_size = preprocess_for_vision(data, suffix)
+    validate_image_bytes(processed, ".png", settings)
+    return base64.b64encode(processed).decode("ascii"), mime, original, new_size
+
+
 def decode_and_validate_b64(b64: str, settings: Settings) -> tuple[bytes, str]:
     """Validate a base64-transported image.
 
@@ -116,6 +178,21 @@ def decode_and_validate_b64(b64: str, settings: Settings) -> tuple[bytes, str]:
     # opportunistic: if probing fails, assume png — the provider handles it).
     mime = validate_image_bytes(data, ".png", settings)
     return data, mime
+
+
+def decode_validate_and_preprocess_b64(
+    b64: str, settings: Settings
+) -> tuple[str, str, tuple[int, int], tuple[int, int]]:
+    """Decode, validate, downscale-for-vision, and re-encode as base64.
+
+    Returns ``(b64, mime, original_size, new_size)``. Byte/pixel budgets are
+    enforced on the *original* bytes first, then the downscaled copy is
+    re-checked before encoding (defense in depth, same limits).
+    """
+    data, _ = decode_and_validate_b64(b64, settings)
+    processed, mime, original, new_size = preprocess_for_vision(data, ".png")
+    validate_image_bytes(processed, ".png", settings)
+    return base64.b64encode(processed).decode("ascii"), mime, original, new_size
 
 
 def sha256_hex(data: bytes) -> str:

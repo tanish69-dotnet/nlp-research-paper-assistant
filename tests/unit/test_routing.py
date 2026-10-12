@@ -25,7 +25,7 @@ def test_every_role_has_a_model_field() -> None:
 
 
 def test_resolve_model_reads_settings(make_settings: object) -> None:
-    settings = make_settings(text_model="text-x", judge_model="judge-y")  # type: ignore[operator]
+    settings = make_settings(text_model="text-x", judge_model="judge-y", analyzer_model="")  # type: ignore[operator]
 
     assert resolve_model(ModelRole.TEXT_REASONER, settings) == "text-x"
     assert resolve_model(ModelRole.JUDGE, settings) == "judge-y"
@@ -65,9 +65,11 @@ def test_role_available_when_provider_reachable_and_inventory_unknown(
 
     assert by_role["text_reasoner"].available is True
     assert by_role["text_reasoner"].detail is None
-    # unconfigured roles must report a reason, not crash
-    assert by_role["judge"].available is False
-    assert by_role["judge"].detail == "model not configured"
+    # Explicitly unconfigured roles must report a reason, not crash
+    unconfigured = make_settings(model_provider="mock", judge_model="")  # type: ignore[operator]
+    judged = {role.role: role for role in run(build_registry(unconfigured).roles())}
+    assert judged["judge"].available is False
+    assert judged["judge"].detail == "model not configured"
 
 
 def test_role_unavailable_when_model_not_installed(make_settings: object) -> None:

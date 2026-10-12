@@ -122,7 +122,23 @@ def test_b64_image_is_forwarded_to_provider(make_settings: object) -> None:
     run(VisionAgent(provider).run_for_evidence(_ctx(settings=make_settings())))  # type: ignore[arg-type]
 
     assert captured.get("has_image") is True
-    assert captured.get("b64") == PNG_B64_1X1
+    # Phase 9K: the agent sends a downscaled-for-vision copy, not the raw
+    # source bytes (longest side <= 1568px). Decode and compare dimensions.
+    import base64 as _b64
+
+    from app.evidence.images import VISION_MAX_SIDE_PX
+
+    raw = _b64.b64decode(PNG_B64_1X1)
+    sent = _b64.b64decode(captured.get("b64"))
+    assert sent, "processed image bytes must be non-empty"
+    try:
+        from PIL import Image as _Image  # type: ignore[import-not-found]
+        import io as _io
+
+        with _Image.open(_io.BytesIO(sent)) as im:
+            assert max(im.size) <= VISION_MAX_SIDE_PX
+    except ImportError:
+        pass
 
 
 def test_missing_image_is_no_evidence(make_settings: object) -> None:
@@ -331,7 +347,7 @@ def test_provider_timeout_at_vision_is_error(make_settings: object) -> None:
         extra={"settings": settings},
     )
 
-    claims, agent_run = run(VisionAgent(slow).run_for_evidence(ctx))
+    claims, agent_run = run(VisionAgent(slow).run_for_evidence(ctx, timeout_s=0.05))
 
     assert claims == []
     assert agent_run.status == "error"

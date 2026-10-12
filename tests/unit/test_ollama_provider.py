@@ -116,6 +116,30 @@ def test_chat_forwards_images_and_options() -> None:
 
     message = captured["json"]["messages"][0]
     assert message["images"] == ["QUJD"]
+    # Phase 9K: vision payloads omit per-request ``options`` (Ollama 0.33.2
+    # rejects options+images with HTTP 400).
+    assert "options" not in captured["json"]
+
+
+def test_chat_forwards_options_for_text_requests() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = json_loads(request.content)
+        return httpx.Response(
+            200, json={"message": {"role": "assistant", "content": "done"}}
+        )
+
+    run(
+        _provider(handler).chat(
+            _request(
+                messages=[ChatMessage(role="user", content="plain text, no images")],
+                temperature=0.2,
+                max_tokens=128,
+            )
+        )
+    )
+
     assert captured["json"]["options"] == {"temperature": 0.2, "num_predict": 128}
 
 

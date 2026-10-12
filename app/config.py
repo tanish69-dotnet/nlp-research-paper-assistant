@@ -62,12 +62,12 @@ class Settings(BaseSettings):
     openai_compat_api_key: SecretStr | None = None
 
     # Role -> model. Empty means "not configured" (reported via /api/v1/models).
-    analyzer_model: str = ""
-    text_model: str = ""
-    table_model: str = ""
-    vision_model: str = ""
-    judge_model: str = ""
-    generator_model: str = ""
+    analyzer_model: str = "qwen2.5:1.5b"
+    text_model: str = "qwen2.5:1.5b"
+    table_model: str = "qwen2.5:1.5b"
+    vision_model: str = "qwen2.5vl:3b"
+    judge_model: str = "qwen2.5:1.5b"
+    generator_model: str = "qwen2.5:1.5b"
 
     model_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     model_max_tokens: int = Field(default=2048, ge=1)

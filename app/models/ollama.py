@@ -57,11 +57,16 @@ class OllamaModelProvider(ModelProvider):
                 entry["images"] = [image.b64 for image in message.images]
             messages.append(entry)
 
+        has_images = any(bool(message.images) for message in request.messages)
         options: dict[str, Any] = {}
-        if request.temperature is not None:
-            options["temperature"] = request.temperature
-        if request.max_tokens is not None:
-            options["num_predict"] = request.max_tokens
+        # Phase 9K Stage 1 finding: Ollama 0.33.2 rejects per-request
+        # ``options`` when the payload carries ``images`` (HTTP 400).
+        # Vision calls therefore omit ``options``; text calls are unchanged.
+        if not has_images:
+            if request.temperature is not None:
+                options["temperature"] = request.temperature
+            if request.max_tokens is not None:
+                options["num_predict"] = request.max_tokens
 
         payload: dict[str, Any] = {
             "model": request.model,

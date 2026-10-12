@@ -99,15 +99,15 @@ def test_models_lists_all_roles_with_mock_provider(client: TestClient) -> None:
         "judge",
         "generator",
     }
-    # nothing configured in this test client -> reported, not crashed
-    assert roles["judge"]["available"] is False
-    assert roles["judge"]["detail"] == "model not configured"
+    # Default models are configured in this test client -> reported, not crashed
+    assert roles["judge"]["available"] is True
+    assert roles["judge"]["detail"] is None
     assert roles["vision_reasoner"]["vision"] is True
     assert roles["judge"]["vision"] is False
 
 
 def test_models_marks_configured_role_available(make_client: object) -> None:
-    client = make_client(text_model="some-local-model")  # type: ignore[operator]
+    client = make_client(text_model="some-local-model", judge_model="")  # type: ignore[operator]
 
     body = client.get("/api/v1/models").json()
     roles = {role["role"]: role for role in body["roles"]}
@@ -115,6 +115,7 @@ def test_models_marks_configured_role_available(make_client: object) -> None:
     assert roles["text_reasoner"]["available"] is True
     assert roles["text_reasoner"]["model"] == "some-local-model"
     assert roles["judge"]["available"] is False
+    assert roles["judge"]["detail"] == "model not configured"
 
 
 def test_models_survives_ollama_downtime(make_client: object) -> None:

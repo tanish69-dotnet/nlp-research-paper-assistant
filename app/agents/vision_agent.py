@@ -17,7 +17,10 @@ import structlog
 from app.agents.base import AgentContext, agent_error_from, complete_json, new_agent_run
 from app.config import Settings
 from app.core.errors import EvidenceInvalidError, ImagePathForbiddenError, PayloadTooLargeError
-from app.evidence.images import decode_and_validate_b64, encode_file_for_provider
+from app.evidence.images import (
+    decode_validate_and_preprocess_b64,
+    encode_file_for_vision,
+)
 from app.evidence.validation import resolve_image_path
 from app.models.base import ChatMessage, ChatRequest, ChatResponse, ImagePayload, ModelProvider
 from app.prompts.assembly import EvidenceContext, assemble_three_zone
@@ -61,10 +64,11 @@ def _resolve_and_encode_for_figure(
 
     if image.b64 is not None:
         try:
-            _, mime = decode_and_validate_b64(image.b64, settings)
+            # Downscale-for-vision copy; the stored source bytes are untouched.
+            processed_b64, mime, _, _ = decode_validate_and_preprocess_b64(image.b64, settings)
         except (EvidenceInvalidError, PayloadTooLargeError) as exc:
             return [], None, f"b64 image for {figure.evidence_id} failed validation: {exc.detail}"
-        return [ImagePayload(b64=image.b64, mime=mime)], None, None  # type: ignore[arg-type]
+        return [ImagePayload(b64=processed_b64, mime=mime)], None, None  # type: ignore[arg-type]
 
     if image.path is not None:
         try:
@@ -76,7 +80,7 @@ def _resolve_and_encode_for_figure(
             return [], None, f"{figure.evidence_id} image not found at {image.path!r} (inside {settings.evidence_root})"
 
         try:
-            b64, mime = encode_file_for_provider(path, settings)
+            b64, mime, _, _ = encode_file_for_vision(path, settings)
         except (EvidenceInvalidError, PayloadTooLargeError, OSError) as exc:
             detail = getattr(exc, "detail", str(exc))
             return [], None, f"{figure.evidence_id} image failed validation: {detail}"
@@ -159,6 +163,7 @@ class VisionAgent:
         *,
         settings: Settings | None = None,
         max_chars_per_item: int = 3000,
+        timeout_s: float | None = None,
     ) -> tuple[list[Claim], AgentRun]:
         started = time.perf_counter()
         if evidence is None:
@@ -210,6 +215,11 @@ class VisionAgent:
         template = load_prompt("vision_agent", self._prompt_version)
         messages = assemble_three_zone(template, ctx.query, blocks)
         system, user = messages[0].content, messages[1].content
+        # Phase 9K: vision inference on 4 GB VRAM is slow (direct test: ~48s
+        # for a full description). The agent budget (60s default) is too tight
+        # once analysis+judge share the request, so vision gets a floor of
+        # 240s unless the caller passes an explicit override.
+        vision_timeout_s = timeout_s if timeout_s is not None else max(ctx.timeout_s, 240.0)
         vision_request = ChatRequest(
             model=ctx.model,
             messages=[
@@ -218,7 +228,7 @@ class VisionAgent:
             ],
             temperature=ctx.temperature,
             max_tokens=ctx.max_tokens,
-            timeout_s=ctx.timeout_s,
+            timeout_s=vision_timeout_s,
             response_format="json",
             metadata={"request_id": ctx.request_id},
         )
@@ -257,7 +267,7 @@ class VisionAgent:
                             ],
                             temperature=ctx.temperature,
                             max_tokens=ctx.max_tokens,
-                            timeout_s=ctx.timeout_s,
+                            timeout_s=vision_timeout_s,
                             response_format="json",
                             metadata={"request_id": ctx.request_id},
                         )
