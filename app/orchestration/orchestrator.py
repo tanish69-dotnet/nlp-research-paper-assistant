@@ -311,7 +311,16 @@ async def full_reasoning(
             temperature=temp,
             max_tokens=max_tokens,
         )
-        verifications, judge_run = await judge.judge(claims, bundle, judge_ctx)
+        # Phase 9O: figure claims with image bytes are verified by the
+        # configured vision model (sequential with agent inference already
+        # complete, so no concurrent VRAM pressure). Text path unchanged.
+        verifications, judge_run = await judge.judge(
+            claims,
+            bundle,
+            judge_ctx,
+            vision_model=registry.model_for(ModelRole.VISION_REASONER) or None,
+            vision_provider=provider,
+        )
         agent_runs.append(judge_run)
         if judge_run.status == "error":
             unverified = True

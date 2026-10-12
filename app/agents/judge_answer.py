@@ -16,8 +16,14 @@ from typing import Any
 import structlog
 
 from app.agents.base import AgentContext, agent_error_from, complete_json, new_agent_run
-from app.core.errors import ReasoningError
-from app.models.base import ModelProvider
+from app.core.errors import MalformedModelOutputError, ReasoningError
+from app.models.base import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ImagePayload,
+    ModelProvider,
+)
 from app.prompts.assembly import EvidenceContext, assemble_three_zone
 from app.prompts.loader import load_prompt
 from app.schemas.claims import AgentRun, Claim
@@ -37,6 +43,13 @@ _ALLOWED_VERDICTS = frozenset({"SUPPORTED", "PARTIALLY_SUPPORTED", "UNSUPPORTED"
 _CITATION_RE = re.compile(r"\[citation:([A-Za-z0-9._:\-]{1,64})\]")
 
 
+def _default_vision_settings():  # type: ignore[no-untyped-def]
+    """Conservative settings for judge-side image preprocessing."""
+    from app.config import Settings as _Settings  # noqa: WPS433
+
+    return _Settings(_env_file=None)  # type: ignore[call-arg]
+
+
 class JudgeAgent:
     """Claim-level verification against a supplied evidence bundle."""
 
@@ -50,6 +63,132 @@ class JudgeAgent:
         self, bundle: EvidenceBundle, max_chars: int
     ) -> list[EvidenceContext]:
         return [EvidenceContext.from_item(item, max_chars) for item in bundle.evidence]
+
+    @staticmethod
+    def _needs_visual_check(claim: Claim, by_evidence_id: dict[str, EvidenceItem]) -> bool:
+        """Whether a claim requires the vision-capable judge path.
+
+        Only ``figure_observation`` claims whose cited evidence includes a
+        figure item carrying real image bytes (``image.b64`` or ``image.path``)
+        need visual verification. Everything else — including caption-only
+        figures — stays on the text-only judge path.
+        """
+        if claim.kind != "figure_observation":
+            return False
+        for eid in claim.evidence_ids:
+            item = by_evidence_id.get(eid)
+            if item is None or item.type != "figure":
+                continue
+            image = item.image
+            if image is not None and (image.b64 or image.path):
+                return True
+        return False
+
+    @staticmethod
+    def _figure_images_for(
+        claims: list[Claim], by_evidence_id: dict[str, EvidenceItem]
+    ) -> list[ImagePayload]:
+        """Collect validated, downscaled image payloads for figure claims.
+
+        Uses the same preprocessing + budgets as the VisionAgent
+        (``decode_validate_and_preprocess_b64`` / ``encode_file_for_vision``).
+        Items that fail validation are skipped — the text judge then sees the
+        ``image: absent`` line and must not support the observation.
+        """
+        from app.evidence.images import (
+            decode_validate_and_preprocess_b64,
+            encode_file_for_vision,
+        )
+        from app.evidence.validation import resolve_image_path
+
+        payloads: list[ImagePayload] = []
+        seen: set[str] = set()
+        for claim in claims:
+            for eid in claim.evidence_ids:
+                if eid in seen:
+                    continue
+                seen.add(eid)
+                item = by_evidence_id.get(eid)
+                if item is None or item.type != "figure" or item.image is None:
+                    continue
+                try:
+                    if item.image.b64:
+                        processed, mime, _, _ = decode_validate_and_preprocess_b64(
+                            item.image.b64, _default_vision_settings()
+                        )
+                        payloads.append(ImagePayload(b64=processed, mime=mime))  # type: ignore[arg-type]
+                    elif item.image.path:
+                        from app.config import Settings as _Settings  # noqa: WPS433
+
+                        settings = _Settings(_env_file=None)  # type: ignore[call-arg]
+                        path = resolve_image_path(item.image.path, settings)
+                        if path.is_file():
+                            b64, mime, _, _ = encode_file_for_vision(path, settings)
+                            payloads.append(ImagePayload(b64=b64, mime=mime))  # type: ignore[arg-type]
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "judge_vision_image_skipped",
+                        component="agents",
+                        evidence_id=eid,
+                        error=f"{type(exc).__name__}",
+                    )
+                    continue
+        return payloads
+
+    async def _complete_json_with_images(
+        self,
+        provider: ModelProvider,
+        *,
+        system: str,
+        user: str,
+        images: list[ImagePayload],
+        ctx: AgentContext,
+        model: str | None,
+    ) -> tuple[dict[str, Any], ChatResponse]:
+        """Validated-JSON completion with vision inputs (one repair retry)."""
+        import json as _json
+
+        request = ChatRequest(
+            model=model or ctx.model,
+            messages=[
+                ChatMessage(role="system", content=system),
+                ChatMessage(role="user", content=user, images=images),
+            ],
+            temperature=ctx.temperature,
+            max_tokens=ctx.max_tokens,
+            timeout_s=max(ctx.timeout_s, 240.0),
+            response_format="json",
+            metadata={"request_id": ctx.request_id},
+        )
+        response = await provider.chat(request)
+        try:
+            return _json.loads(response.text), response
+        except (_json.JSONDecodeError, TypeError) as first_exc:
+            logger.info("judge_json_repair", component="agents", attempt=1)
+            repaired = await provider.chat(
+                ChatRequest(
+                    model=model or ctx.model,
+                    messages=[
+                        ChatMessage(role="system", content=system),
+                        ChatMessage(
+                            role="user",
+                            content=user + "\n\nYour previous reply was not valid JSON. Reply with a single valid JSON object only.",
+                            images=images,
+                        ),
+                    ],
+                    temperature=ctx.temperature,
+                    max_tokens=ctx.max_tokens,
+                    timeout_s=max(ctx.timeout_s, 240.0),
+                    response_format="json",
+                    metadata={"request_id": ctx.request_id},
+                )
+            )
+            try:
+                return _json.loads(repaired.text), repaired
+            except (_json.JSONDecodeError, TypeError) as second_exc:
+                raise MalformedModelOutputError(
+                    "model did not return valid JSON after repair"
+                ) from second_exc
 
     def _claims_block(self, claims: list[Claim]) -> str:
         if not claims:
@@ -172,11 +311,14 @@ class JudgeAgent:
         ctx: AgentContext,
         *,
         max_chars_per_item: int = 3000,
+        vision_model: str | None = None,
+        vision_provider: ModelProvider | None = None,
     ) -> tuple[list[ClaimVerification], AgentRun]:
         started = time.perf_counter()
         evidence_ctx = self._evidence_contexts(bundle, max_chars_per_item)
         known = {item.evidence_id for item in bundle.evidence}
         claims_by_id = {claim.claim_id: claim for claim in claims}
+        by_evidence_id = {item.evidence_id: item for item in bundle.evidence}
 
         # Deterministic gate: claims that violate invariants, contain empty text,
         # or have numeric contradictions are *immediately* verified without a
@@ -216,23 +358,84 @@ class JudgeAgent:
         )
         system, user = messages[0].content, messages[1].content
 
-        try:
-            payload, response = await complete_json(
-                self._provider, system=system, user=user, ctx=ctx
+        # Phase 9O: figure claims whose evidence carries real image bytes are
+        # verified by the vision-capable model with the image attached. The
+        # text-only judge path is used for everything else — images are never
+        # sent to a text-only model. Sequential (no concurrent vision calls):
+        # figure claims are judged first, then the remainder.
+        figure_claims = [c for c in to_judge if self._needs_visual_check(c, by_evidence_id)]
+        text_claims = [c for c in to_judge if c not in figure_claims]
+
+        verdict_lists: list[list[ClaimVerification]] = []
+        dropped_all: list[str] = []
+        last_response = None
+        for group, use_vision in ((figure_claims, True), (text_claims, False)):
+            if not group:
+                continue
+            group_images = self._figure_images_for(group, by_evidence_id) if use_vision else []
+            if use_vision and (not group_images or vision_provider is None or not vision_model):
+                # No image bytes or no vision model configured: the text
+                # judge sees the image-presence line ("absent — caption
+                # only") and must not support a figure_observation on it.
+                group_provider, group_model, group_images = self._provider, None, []
+            elif use_vision:
+                group_provider, group_model = vision_provider, vision_model
+            else:
+                group_provider, group_model = self._provider, None
+            group_content = self._claims_block(group) + "\n\nSupplied evidence bound by the bundle above is the only source."
+            group_messages = assemble_three_zone(
+                template, f"Query: {ctx.query}\n\n{group_content}", evidence_ctx
             )
-        except Exception as exc:  # noqa: BLE001
-            # The judge is the trust boundary; a failed judge leaves *every*
-            # remaining claim undecided rather than trusted.
-            logger.warning("judge_provider_failure", component="agents", error=str(exc))
-            return [], new_agent_run(
-                JUDGE_NAME,
-                ctx,
-                status="error",
-                started_s=started,
-                evidence_ids_used=list(known),
-                prompt_version=JUDGE_PROMPT_VERSION,
-                error=agent_error_from(exc),
-            )
+            group_system, group_user = group_messages[0].content, group_messages[1].content
+            try:
+                if group_images:
+                    payload, response = await self._complete_json_with_images(
+                        group_provider,
+                        system=group_system,
+                        user=group_user,
+                        images=group_images,
+                        ctx=ctx,
+                        model=group_model,
+                    )
+                else:
+                    payload, response = await complete_json(
+                        group_provider, system=group_system, user=group_user, ctx=ctx,
+                        model=group_model,
+                    )
+                last_response = response
+            except Exception as exc:  # noqa: BLE001
+                # The judge is the trust boundary; a failed judge leaves *every*
+                # remaining claim undecided rather than trusted.
+                logger.warning("judge_provider_failure", component="agents", error=str(exc))
+                return [], new_agent_run(
+                    JUDGE_NAME,
+                    ctx,
+                    status="error",
+                    started_s=started,
+                    evidence_ids_used=list(known),
+                    prompt_version=JUDGE_PROMPT_VERSION,
+                    error=agent_error_from(exc),
+                )
+            try:
+                group_verdicts, group_dropped = self._validated_verdicts(
+                    payload, {c.claim_id: c for c in group}, known
+                )
+            except Exception as exc:  # noqa: BLE001
+                return [], new_agent_run(
+                    JUDGE_NAME,
+                    ctx,
+                    status="error",
+                    started_s=started,
+                    evidence_ids_used=list(known),
+                    prompt_version=JUDGE_PROMPT_VERSION,
+                    error=agent_error_from(exc),
+                )
+            verdict_lists.append(group_verdicts)
+            dropped_all.extend(group_dropped)
+
+        judge_verdicts = [v for group in verdict_lists for v in group]
+        dropped = dropped_all
+        response = last_response
 
         try:
             judge_verdicts, dropped = self._validated_verdicts(payload, {c.claim_id: c for c in to_judge}, known)

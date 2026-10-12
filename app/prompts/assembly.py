@@ -29,7 +29,12 @@ EVIDENCE_INSTRUCTION_WARNING = (
 
 @dataclass(frozen=True)
 class EvidenceContext:
-    """One evidence item prepared for Zone C rendering."""
+    """One evidence item prepared for Zone C rendering.
+
+    ``table_summary`` is a concise deterministic rendering of structured
+    table data (headers + first rows); ``image_status`` records whether
+    figure bytes are attached (never the bytes themselves).
+    """
 
     evidence_id: str
     kind: str
@@ -39,6 +44,8 @@ class EvidenceContext:
     caption: str | None
     content: str
     truncated: bool = False
+    table_summary: str | None = None
+    image_status: str | None = None
 
     @classmethod
     def from_item(cls, item: EvidenceItem, max_chars: int) -> "EvidenceContext":
@@ -47,6 +54,17 @@ class EvidenceContext:
         if len(text) > max_chars:
             text = text[:max_chars]
             truncated = True
+        table_summary: str | None = None
+        if item.table_data is not None:
+            table_summary = _summarize_table(item.table_data)
+        image_status: str | None = None
+        if item.type == "figure":
+            image = item.image
+            if image is not None and (image.b64 or image.path):
+                source = "base64" if image.b64 else "path"
+                image_status = f"image: present ({source})"
+            else:
+                image_status = "image: absent — caption only"
         return cls(
             evidence_id=item.evidence_id,
             kind=item.type,
@@ -56,7 +74,27 @@ class EvidenceContext:
             caption=item.caption,
             content=text,
             truncated=truncated,
+            table_summary=table_summary,
+            image_status=image_status,
         )
+
+
+def _summarize_table(table_data: Any, max_rows: int = 8, max_cell: int = 64) -> str:
+    """Concise deterministic table rendering (headers + first rows)."""
+    try:
+        headers = list(table_data.headers or [])
+        rows = list(table_data.rows or [])
+    except AttributeError:
+        return ""
+    lines = ["table_data:"]
+    if headers:
+        lines.append("  headers: " + " | ".join(str(h)[:max_cell] for h in headers))
+    for row in rows[:max_rows]:
+        cells = row if isinstance(row, (list, tuple)) else [row]
+        lines.append("  row: " + " | ".join(str(c)[:max_cell] if c is not None else "" for c in cells))
+    if len(rows) > max_rows:
+        lines.append(f"  ... ({len(rows) - max_rows} more rows)")
+    return "\n".join(lines)
 
 
 def render_evidence_block(context: EvidenceContext) -> str:
@@ -68,6 +106,10 @@ def render_evidence_block(context: EvidenceContext) -> str:
         header_lines.append(f"page: {context.page}")
     if context.caption:
         header_lines.append(f"caption: {context.caption}")
+    if context.table_summary:
+        header_lines.append(context.table_summary)
+    if context.image_status:
+        header_lines.append(context.image_status)
     if context.truncated:
         header_lines.append("(content truncated to budget)")
     return "\n".join([*header_lines, context.content, ZONE_C_CLOSE.format(evidence_id=context.evidence_id)])

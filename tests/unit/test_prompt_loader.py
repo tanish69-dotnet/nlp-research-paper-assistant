@@ -101,9 +101,15 @@ def test_hostile_content_cannot_close_the_block() -> None:
 
 
 def test_evidence_content_is_truncated_to_budget() -> None:
+    from app.schemas.evidence import EvidenceItem
+
     context = EvidenceContext.from_item(
-        type("Fake", (), {"content": "x" * 10_000, "caption": None, "evidence_id": "e1",
-                          "type": "text", "paper_id": "p", "reference": None, "page": None})(),
+        EvidenceItem(
+            evidence_id="e1",
+            paper_id="p",
+            type="text",
+            content="x" * 10_000,
+        ),
         max_chars=50,
     )
 
@@ -112,7 +118,7 @@ def test_evidence_content_is_truncated_to_budget() -> None:
 
 
 def test_evidence_truncation_indicator_appears_in_block() -> None:
-    context = EvidenceContext("e1", "text", "paper_001", None, None, None, "hello", truncated=True)
+    context = EvidenceContext("e1", "text", "paper_001", None, None, None, "hello", True, None, None)
     block = render_evidence_block(context)
 
     assert "(content truncated" in block

@@ -46,7 +46,11 @@ Trust and security:
   PARTIALLY_SUPPORTED / UNSUPPORTED over SUPPORTED.
 - Table claims: prefer structured table_data over surrounding prose when a
   numeric value is at issue. A stated cell value overrides prose.
-- Figure claims: a qualitative visual observation (declines, peaks) must
-  reflect what is visually supported; precise numbers require legible figure
-  labels — otherwise mark UNSUPPORTED/PARTIALLY_SUPPORTED.
+- Figure claims: a qualitative visual observation (declines, peaks, named
+  visible components) is SUPPORTED when the attached figure image shows it
+  and the caption/context is consistent. Precise numbers still require
+  legible figure labels or independently available textual evidence —
+  otherwise mark UNSUPPORTED/PARTIALLY_SUPPORTED. A caption alone, without
+  image bytes (marked "image: absent — caption only"), can NEVER support a
+  figure_observation — at most the caption's own text as an author_claim.
 - Return a verdict for EVERY claim in the input, with matching claim_id.
