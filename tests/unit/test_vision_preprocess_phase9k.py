@@ -324,6 +324,92 @@ def test_text_only_citation_cannot_ground_figure_observation():
     assert run.status in {"ok", "partial"}
 
 
+def test_empty_findings_trigger_one_minimal_retry():
+    """Phase 9Q+: valid-empty first call retries once with the target figure.
+
+    The mock matches on prompt substrings. The full prompt contains the
+    caption text; the minimal retry prompt contains the single figure block.
+    Needles are chosen so the full call returns empty and the retry returns
+    the claim: the retry prompt is a strict subset, so its needle must be
+    the figure block marker that also appears... instead, drive the two
+    calls directly: first call empty via a full-prompt-only needle, retry
+    via the shared USER QUESTION marker plus a retry-only token.
+    """
+    import asyncio
+    import json
+
+    from app.agents.base import AgentContext
+    from app.agents.vision_agent import VisionAgent
+    from app.models.mock import MockModelProvider
+    from app.schemas.evidence import EvidenceItem, ImageRef
+
+    small = _png_bytes((200, 200))
+    fig = EvidenceItem(
+        evidence_id="e_fig",
+        paper_id="paper_001",
+        type="figure",
+        content="",
+        caption="Figure 1: X",
+        image=ImageRef(b64=_b64(small)),
+    )
+    # MockModelProvider returns the FIRST matching needle. Both prompts share
+    # "Describe Figure 1." but only the retry prompt is minimal (single
+    # block). Use call-count-based sequencing instead of needles.
+    calls: list[str] = []
+    claim_payload = json.dumps(
+        {
+            "findings": [
+                {
+                    "claim_id": "cl_retry",
+                    "kind": "figure_observation",
+                    "text": "Seen on retry.",
+                    "evidence_ids": ["e_fig"],
+                    "confidence": 0.75,
+                }
+            ]
+        }
+    )
+
+    class SequencedProvider(MockModelProvider):
+        async def chat(self, request):  # type: ignore[override]
+            from app.models.base import ChatResponse
+
+            calls.append("call")
+            if len(calls) == 1:
+                return ChatResponse(
+                    text=json.dumps({"findings": []}),
+                    model="m",
+                    provider="mock",
+                    finish_reason="stop",
+                )
+            return ChatResponse(
+                text=claim_payload,
+                model="m",
+                provider="mock",
+                finish_reason="stop",
+            )
+
+    provider = SequencedProvider()
+    image_counts: list[int] = []
+    orig_chat = provider.chat
+
+    async def counting_chat(request):  # type: ignore[no-untyped-def]
+        image_counts.append(len(request.messages[1].images))
+        return await orig_chat(request)
+
+    provider.chat = counting_chat  # type: ignore[method-assign]
+    ctx = AgentContext(
+        request_id="t", query="Describe Figure 1.", evidence=(fig,),
+        model="m", provider_name="mock",
+    )
+    claims, run = asyncio.run(VisionAgent(provider).run_for_evidence(ctx))
+
+    assert [c.claim_id for c in claims] == ["cl_retry"]
+    assert run.status in {"ok", "partial"}
+    assert len(calls) == 2, "initial call + exactly one minimal retry"
+    assert image_counts == [1, 1], "same single image on both calls"
+
+
 def test_unsupported_visual_claim_stays_unsupported():
     import asyncio
     import json

@@ -253,8 +253,24 @@ async def full_reasoning(
 
     claims: list[Claim] = []
     agents_started = time.perf_counter()
-    if coros:
-        results = await asyncio.gather(*(coro for _, coro in coros), return_exceptions=True)
+    # Phase 9Q+: text/table agents may run together, but the vision agent
+    # always runs alone — concurrent Ollama loads swap the 4 GB VRAM model
+    # and starve vision inference (observed: vision error/empty under load).
+    vision_coro = next(((n, c) for n, c in coros if n == "vision_reasoner"), None)
+    other_coros = [(n, c) for n, c in coros if n != "vision_reasoner"]
+    ordered_coros = other_coros + ([vision_coro] if vision_coro else [])
+    if ordered_coros:
+        results = []
+        # Run text+table concurrently, then vision strictly sequentially.
+        batch = [c for _, c in other_coros]
+        if batch:
+            results.extend(await asyncio.gather(*batch, return_exceptions=True))
+        if vision_coro is not None:
+            try:
+                results.append(await vision_coro[1])
+            except Exception as exc:  # noqa: BLE001
+                results.append(exc)
+        coros = ordered_coros
         for (name, _), result in zip(coros, results):  # type: ignore[arg-type]
             if isinstance(result, Exception):
                 from app.agents.base import agent_error_from, new_agent_run as _new  # noqa: WPS433

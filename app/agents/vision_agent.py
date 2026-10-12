@@ -465,6 +465,33 @@ class VisionAgent:
         kept, drop_reasons = _validated_findings(
             raw_findings, known_ids, usable_figure_ids=usable_figure_ids
         )
+        # Phase 9Q+: one controlled retry on valid-but-empty findings. The 3B
+        # VLM intermittently abstains on multi-block prompts even when the
+        # same image verifies via a minimal prompt. Retry once with the
+        # single target figure + caption only (no surrounding text), same
+        # validated image bytes. Never bypasses validation/gating.
+        if not kept and images and not degraded:
+            retry_kept, retry_dropped = await self._retry_minimal(
+                ctx=ctx,
+                evidence=evidence,
+                blocks=blocks,
+                images=images,
+                known_ids=known_ids,
+                usable_figure_ids=usable_figure_ids,
+                system=system,
+                vision_timeout_s=vision_timeout_s,
+                started=started,
+            )
+            if retry_kept:
+                kept = retry_kept
+                drop_reasons = drop_reasons + retry_dropped
+                logger.info(
+                    "vision_agent_retry_succeeded",
+                    component="agents",
+                    kept=len(kept),
+                )
+            elif retry_dropped:
+                drop_reasons = drop_reasons + retry_dropped
         if drop_reasons:
             logger.info(
                 "vision_agent_filtered_findings",
@@ -489,6 +516,59 @@ class VisionAgent:
             usage_prompt_tokens=getattr(response, "usage", None).prompt_tokens if hasattr(response, "usage") else None,  # type: ignore[attr-defined]
             usage_completion_tokens=getattr(response, "usage", None).completion_tokens if hasattr(response, "usage") else None,  # type: ignore[attr-defined]
         )
+
+    async def _retry_minimal(
+        self,
+        *,
+        ctx: AgentContext,
+        evidence: tuple[EvidenceItem, ...],
+        blocks: list[EvidenceContext],
+        images: list[ImagePayload],
+        known_ids: set[str],
+        usable_figure_ids: set[str],
+        system: str,
+        vision_timeout_s: float,
+        started: float,
+    ) -> tuple[list[Claim], list[str]]:
+        """One minimal retry: target figure block only, same validated image."""
+        from app.prompts.assembly import render_evidence_block
+
+        target_eid: str | None = None
+        minimal_user = ""
+        for block in blocks:
+            if block.evidence_id in usable_figure_ids:
+                target_eid = block.evidence_id
+                minimal_user = (
+                    f"--- USER QUESTION ---\n{ctx.query}\n--- END USER QUESTION ---\n\n"
+                    + render_evidence_block(block)
+                )
+                break
+        if target_eid is None:
+            return [], ["retry skipped: no usable figure"]
+        try:
+            response = await self._provider.chat(
+                ChatRequest(
+                    model=ctx.model,
+                    messages=[
+                        ChatMessage(role="system", content=system),
+                        ChatMessage(role="user", content=minimal_user, images=images[:1]),
+                    ],
+                    temperature=ctx.temperature,
+                    max_tokens=ctx.max_tokens,
+                    timeout_s=vision_timeout_s,
+                    response_format="json",
+                    metadata={"request_id": ctx.request_id},
+                )
+            )
+            import json as _json
+
+            payload = _json.loads(response.text)
+        except Exception as exc:  # noqa: BLE001
+            return [], [f"retry failed: {type(exc).__name__}"]
+        raw = payload.get("findings") if isinstance(payload, dict) else None
+        if not isinstance(raw, list):
+            return [], ["retry payload.findings is not a list"]
+        return _validated_findings(raw, known_ids, usable_figure_ids=usable_figure_ids)
 
     async def run(self, ctx: AgentContext) -> AgentRun:
         _, run = await self.run_for_evidence(ctx, ctx.evidence)
