@@ -53,7 +53,7 @@ def test_successful_retry_replaces_imageless_bundle():
     provider = MockRetrievalProvider(
         responses=[
             (
-                "Figure 1 1611.04684v1",
+                "Look at Figure 1 of paper 1611.04684v1",
                 {
                     "evidence": [
                         {

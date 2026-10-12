@@ -119,10 +119,14 @@ def _evidence_contexts_for_vision(
 
 
 def _validated_findings(
-    raw_findings: list[dict[str, Any]], known_ids: set[str]
+    raw_findings: list[dict[str, Any]],
+    known_ids: set[str],
+    *,
+    usable_figure_ids: set[str] | None = None,
 ) -> tuple[list[Claim], list[str]]:
     kept: list[Claim] = []
     dropped: list[str] = []
+    usable = usable_figure_ids if usable_figure_ids is not None else set(known_ids)
     for idx, raw in enumerate(raw_findings):
         payload = dict(raw)
         payload.setdefault("agent", AGENT_NAME)
@@ -143,6 +147,15 @@ def _validated_findings(
                 unknown=unknown,
             )
             continue
+        # Phase 9P: a figure_observation must cite at least one figure with
+        # usable image bytes — never text-only evidence. Text-only citations
+        # stay ungrounded visual claims and are dropped here, not verified.
+        if candidate.kind == "figure_observation":
+            if not any(eid in usable for eid in candidate.evidence_ids):
+                dropped.append(
+                    f"claim[{candidate.claim_id}] figure_observation cites no usable figure image"
+                )
+                continue
         kept.append(candidate)
     return kept, dropped
 
@@ -317,7 +330,24 @@ class VisionAgent:
                 ),
             )
 
-        kept, drop_reasons = _validated_findings(raw_findings, known_ids)
+        # Phase 9P: usable-figure gating — figure_observation claims must cite
+        # at least one figure whose bytes were actually attached to this call
+        # (tracked via the degraded map: figures WITHOUT an entry produced
+        # payloads). Text-only citations can never ground a visual claim.
+        degraded_ids = set(degraded)
+        usable_figure_ids = {
+            item.evidence_id
+            for item in evidence
+            if item.type == "figure"
+            and item.evidence_id in known_ids
+            and item.evidence_id not in degraded_ids
+        }
+        # A call with zero attached images has no usable figures at all.
+        if not images:
+            usable_figure_ids = set()
+        kept, drop_reasons = _validated_findings(
+            raw_findings, known_ids, usable_figure_ids=usable_figure_ids
+        )
         if drop_reasons:
             logger.info(
                 "vision_agent_filtered_findings",

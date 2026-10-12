@@ -130,6 +130,7 @@ async def ask(
         bundle,
         top_k=top_k,
         timeout_s=timeout,
+        paper_ids=paper_ids,
     )
     # Re-validate after a retry replaced the bundle (same gate, same rules).
     try:

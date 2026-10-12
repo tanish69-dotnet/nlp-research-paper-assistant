@@ -263,6 +263,67 @@ def test_missing_model_surfaces_as_error_not_crash():
     assert run.error is not None
 
 
+def test_text_only_citation_cannot_ground_figure_observation():
+    """Phase 9P: a figure_observation citing only text ids is dropped."""
+    import asyncio
+    import json
+
+    from app.agents.base import AgentContext
+    from app.agents.vision_agent import VisionAgent
+    from app.models.mock import MockModelProvider
+    from app.schemas.evidence import EvidenceItem, ImageRef
+
+    small = _png_bytes((100, 100))
+    fig = EvidenceItem(
+        evidence_id="e_fig",
+        paper_id="paper_001",
+        type="figure",
+        content="",
+        caption="Figure 1: X",
+        image=ImageRef(b64=_b64(small)),
+    )
+    txt = EvidenceItem(
+        evidence_id="e_txt",
+        paper_id="paper_001",
+        type="text",
+        content="Figure 1 shows boxes.",
+    )
+    provider = MockModelProvider(
+        responses=[
+            (
+                "Vision",
+                json.dumps(
+                    {
+                        "findings": [
+                            {
+                                "claim_id": "bad",
+                                "kind": "figure_observation",
+                                "text": "Seen via text alone.",
+                                "evidence_ids": ["e_txt"],
+                                "confidence": 0.9,
+                            },
+                            {
+                                "claim_id": "good",
+                                "kind": "figure_observation",
+                                "text": "Seen in the image.",
+                                "evidence_ids": ["e_fig"],
+                                "confidence": 0.8,
+                            },
+                        ]
+                    }
+                ),
+            )
+        ]
+    )
+    ctx = AgentContext(
+        request_id="t", query="Q", evidence=(fig, txt), model="m", provider_name="mock"
+    )
+    claims, run = asyncio.run(VisionAgent(provider).run_for_evidence(ctx))
+
+    assert [c.claim_id for c in claims] == ["good"]
+    assert run.status in {"ok", "partial"}
+
+
 def test_unsupported_visual_claim_stays_unsupported():
     import asyncio
     import json
