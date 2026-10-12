@@ -427,9 +427,13 @@ def test_llm_output_with_unknown_claim_id_becomes_unsupported_for_that_claim() -
     )
     verifications, agent_run = run(JudgeAgent(provider).judge([_claim_text(["e_t"])], _bundle(), _ctx()))
 
-    assert len(verifications) == 1
-    assert verifications[0].verdict == "UNSUPPORTED"
-    assert agent_run.status == "ok"
+    # Phase 9M: a wholly misaddressed judge output (every entry dropped for an
+    # addressing reason) fails closed — the run is error with a diagnostic,
+    # and no verdict is presented as a genuine UNSUPPORTED.
+    assert verifications == []
+    assert agent_run.status == "error"
+    assert agent_run.error is not None
+    assert "unknown claim_id" in agent_run.error.message
 
 
 def test_malformed_json_results_in_error_status() -> None:

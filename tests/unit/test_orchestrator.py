@@ -215,9 +215,9 @@ def test_answer_generator_failure_graceful() -> None:
                 json.dumps(
                     {
                         "verdicts": [
-                            {"claim_id": "cl_text", "verdict": "SUPPORTED", "rationale": "ok", "evidence_ids_support": [], "evidence_ids_contradict": [], "missing_aspects": []},
-                            {"claim_id": "cl_table", "verdict": "SUPPORTED", "rationale": "ok", "evidence_ids_support": [], "evidence_ids_contradict": [], "missing_aspects": []},
-                            {"claim_id": "cl_fig", "verdict": "SUPPORTED", "rationale": "ok", "evidence_ids_support": [], "evidence_ids_contradict": [], "missing_aspects": []},
+                            {"claim_id": "cl_text", "verdict": "SUPPORTED", "rationale": "ok", "evidence_ids_support": ["e_p001_p4_s42"], "evidence_ids_contradict": [], "missing_aspects": []},
+                            {"claim_id": "cl_table", "verdict": "SUPPORTED", "rationale": "ok", "evidence_ids_support": ["e_p001_p7_t3"], "evidence_ids_contradict": [], "missing_aspects": []},
+                            {"claim_id": "cl_fig", "verdict": "SUPPORTED", "rationale": "ok", "evidence_ids_support": ["e_p001_p8_f5"], "evidence_ids_contradict": [], "missing_aspects": []},
                         ]
                     }
                 ),

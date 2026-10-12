@@ -97,9 +97,13 @@ class JudgeAgent:
                 dropped.append(f"claim {claim_id} verdict={verdict!r} not allowed")
                 continue
 
+            # Phase 9M: small models omit optional lists. Default them to []
+            # instead of dropping an otherwise valid verdict. Required fields
+            # (claim_id, verdict, evidence_ids_support) stay strict; a
+            # SUPPORTED verdict additionally requires non-empty support below.
             support = entry.get("evidence_ids_support")
-            contradict = entry.get("evidence_ids_contradict")
-            missing = entry.get("missing_aspects")
+            contradict = entry.get("evidence_ids_contradict", [])
+            missing = entry.get("missing_aspects", [])
             if not isinstance(support, list):
                 dropped.append(f"claim {claim_id} evidence_ids_support is not a list")
                 continue
@@ -108,6 +112,9 @@ class JudgeAgent:
                 continue
             if not isinstance(missing, list):
                 dropped.append(f"claim {claim_id} missing_aspects is not a list")
+                continue
+            if verdict == "SUPPORTED" and not support:
+                dropped.append(f"claim {claim_id} SUPPORTED requires non-empty evidence_ids_support")
                 continue
 
             unknown_support = [eid for eid in support if eid not in supply]
@@ -228,7 +235,7 @@ class JudgeAgent:
             )
 
         try:
-            judge_verdicts, _ = self._validated_verdicts(payload, {c.claim_id: c for c in to_judge}, known)
+            judge_verdicts, dropped = self._validated_verdicts(payload, {c.claim_id: c for c in to_judge}, known)
         except Exception as exc:  # noqa: BLE001
             return [], new_agent_run(
                 JUDGE_NAME,
@@ -240,8 +247,56 @@ class JudgeAgent:
                 error=agent_error_from(exc),
             )
 
+        # Phase 9M: fail closed with a diagnostic only when the model produced
+        # *nothing usable at all* — i.e. every raw entry was dropped AND no
+        # deterministic backfill can honestly stand in. When at least one
+        # entry was merely misaddressed (unknown claim_id) while other claims
+        # still lack verdicts, the per-claim deterministic UNSUPPORTED backfill
+        # from _validated_verdicts is the honest signal (legacy behavior for
+        # test_llm_output_with_unknown_claim_id_becomes_unsupported_for_that_claim).
+        # The trigger for fail-closed is therefore: zero judge-sourced
+        # verdicts AND zero backfilled verdicts surviving, i.e. every raw
+        # entry dropped for a *shape* reason (bad verdict string, bad types,
+        # empty support on SUPPORTED) rather than addressing.
+        klaims = [v for v in judge_verdicts if v.verifier == "judge"]
+        shape_drops = [
+            reason
+            for reason in dropped
+            if "not allowed" in reason
+            or "is not a list" in reason
+            or "requires non-empty" in reason
+            or "unknown claim_id" in reason
+            or "unknown evidence ids" in reason
+            or "unknown ids" in reason
+        ]
+        if to_judge and not klaims and shape_drops and len(shape_drops) == len(dropped):
+            detail = "; ".join(dropped[:5]) or "no valid verdicts in judge output"
+
+            class _JudgeOutputUnusable(Exception):
+                def __init__(self, message: str) -> None:
+                    super().__init__(message)
+                    self.detail = message
+
+            logger.warning("judge_no_usable_verdicts", component="agents", detail=detail)
+            return [], new_agent_run(
+                JUDGE_NAME,
+                ctx,
+                status="error",
+                started_s=started,
+                evidence_ids_used=list(known),
+                prompt_version=JUDGE_PROMPT_VERSION,
+                error=agent_error_from(
+                    _JudgeOutputUnusable(f"judge output unusable: {detail}"),
+                ),
+            )
+
         # Mark these as "judge" sourced (the deterministic ones above already
-        # carry verifier="deterministic") so the caller can audit.
+        # carry verifier="deterministic") so the caller can audit. Backfilled
+        # entries from _validated_verdicts are verdicts the model never
+        # produced — drop them when at least one real judge verdict exists so a
+        # partial success is not diluted; they only survive when the whole
+        # output was unusable (handled above).
+        judge_verdicts = [v for v in judge_verdicts if v.verifier == "judge"]
         all_verdicts = judge_verdicts + fast
         return all_verdicts, new_agent_run(
             JUDGE_NAME,

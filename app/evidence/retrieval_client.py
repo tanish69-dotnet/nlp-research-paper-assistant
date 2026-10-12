@@ -116,10 +116,22 @@ class MockRetrievalProvider(RetrievalProvider):
         if self._delay_s > 0:
             await asyncio.sleep(self._delay_s)
 
+        from app.evidence.adapter import adapt_retrieval_response  # noqa: WPS433
+
         for needle, body in self._responses:
             if needle in request.query:
+                # ``body`` is a raw Person 2 envelope (dict) or an already
+                # shaped evidence list. Route dicts through the adapter so
+                # tests and live code share one mapping.
+                bundle = (
+                    adapt_retrieval_response(body)
+                    if isinstance(body, dict)
+                    else EvidenceBundle(evidence=body, query=request.query, papers=[])
+                )
+                if isinstance(bundle, EvidenceBundle):
+                    bundle.query = request.query
                 return RetrievalResponse(
-                    bundle=EvidenceBundle(evidence=body, query=request.query, papers=[]),
+                    bundle=bundle,
                     latency_ms=int(self._delay_s * 1000),
                     provider=self.name,
                 )

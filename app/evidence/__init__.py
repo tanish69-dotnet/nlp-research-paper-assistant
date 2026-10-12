@@ -4,6 +4,7 @@ from app.evidence.adapter import (
     adapt_retrieval_record,
     adapt_retrieval_response,
 )
+from app.evidence.figures import figure_references_in_query, maybe_scoped_figure_retry
 from app.evidence.images import (
     VISION_MAX_SIDE_PX,
     decode_validate_and_preprocess_b64,
@@ -40,6 +41,8 @@ __all__ = [
     "build_retrieval_provider_from_settings",
     "decode_validate_and_preprocess_b64",
     "encode_file_for_vision",
+    "figure_references_in_query",
+    "maybe_scoped_figure_retry",
     "preprocess_for_vision",
     "referenced_evidence_ids",
     "resolve_image_path",

@@ -120,6 +120,25 @@ async def ask(
 
         raise EvidenceInvalidError(f"retrieval image_path forbidden: {exc.detail}") from exc
 
+    # Phase 9M: one bounded figure-scoped retry (paper_id + Figure N) when the
+    # question targets a figure but the bundle has no usable figure evidence.
+    from app.evidence.figures import maybe_scoped_figure_retry  # noqa: WPS433
+
+    bundle = await maybe_scoped_figure_retry(
+        provider,
+        body.query,
+        bundle,
+        top_k=top_k,
+        timeout_s=timeout,
+    )
+    # Re-validate after a retry replaced the bundle (same gate, same rules).
+    try:
+        validate_evidence(bundle, settings)
+    except ImagePathForbiddenError as exc:
+        from app.core.errors import EvidenceInvalidError  # noqa: WPS433
+
+        raise EvidenceInvalidError(f"retrieval image_path forbidden: {exc.detail}") from exc
+
     # Re-use the production orchestration logic — no duplication.
     result = await full_reasoning(
         query=body.query,
