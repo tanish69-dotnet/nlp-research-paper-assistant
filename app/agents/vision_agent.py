@@ -89,22 +89,137 @@ def _resolve_and_encode_for_figure(
     return [], None, "figure image has no transport"
 
 
+#: Maximum figures attached to one vision call (VRAM + prompt-focus bound).
+#: Explicit multi-figure questions (compare Figure 1 and Figure 2) may use up
+#: to this many; ordinary single-figure questions attach exactly one.
+MAX_VISION_IMAGES = 2
+
+#: Maximum same-paper text blocks attached as context (caption-adjacent first).
+MAX_VISION_TEXT_BLOCKS = 2
+
+
+def _infer_paper_hint(query: str, evidence: tuple[EvidenceItem, ...]) -> str | None:
+    """Paper id hint from explicit arXiv ids in the query (never guessed)."""
+    from app.evidence.retrieval_client import infer_paper_ids  # noqa: WPS433
+
+    candidates = list(infer_paper_ids(query))
+    if candidates:
+        return candidates[0]
+    return None
+
+
+def _score_text_for_figure(
+    text: EvidenceItem, figure: EvidenceItem, query: str
+) -> tuple[int, str]:
+    """Relevance score for a text block given a target figure (higher first).
+
+    Prefers: same paper > mentions the figure reference/caption words >
+    mentions generic figure words > query word overlap. Deterministic
+    (no model, no randomness). Returns ``(score, evidence_id)`` for stable
+    tie-breaking.
+    """
+    import re as _re
+
+    score = 0
+    if text.paper_id == figure.paper_id:
+        score += 10
+    haystack = f"{text.content} {text.caption or ''} {text.section or ''}".lower()
+    ref = (figure.reference or "").lower()
+    if ref and ref in haystack:
+        score += 5
+    caption_words = {w for w in _re.findall(r"[a-z0-9]+", (figure.caption or "").lower()) if len(w) > 3}
+    if caption_words and any(w in haystack for w in caption_words):
+        score += 3
+    if _re.search(r"\b(?:figure|fig\.?|diagram|chart)\b", haystack):
+        score += 1
+    query_words = {w for w in _re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 3}
+    if query_words and any(w in haystack for w in query_words):
+        score += 1
+    return score, text.evidence_id
+
+
+def select_vision_context(
+    evidence: tuple[EvidenceItem, ...],
+    query: str,
+    *,
+    max_images: int = MAX_VISION_IMAGES,
+    max_texts: int = MAX_VISION_TEXT_BLOCKS,
+) -> tuple[list[EvidenceItem], list[EvidenceItem]]:
+    """Compact, deterministic vision context (Phase 9Q).
+
+    Returns ``(figures, texts)`` where ``figures`` are figure items with
+    image bytes first (target paper preferred, original order otherwise) and
+    ``texts`` are the most relevant same-paper text blocks. Tables and
+    other-paper figures are excluded from the *vision call only* — the full
+    bundle still reaches text/table agents and the judge. Contradictory
+    evidence is never filtered by stance, only by relevance role.
+    """
+    figures = [item for item in evidence if item.type == "figure"]
+    with_bytes = [f for f in figures if f.image is not None and (f.image.b64 or f.image.path)]
+    paper_hint = _infer_paper_hint(query, evidence)
+
+    def figure_key(item: EvidenceItem) -> tuple[int, int]:
+        same_paper = 0 if (paper_hint is not None and item.paper_id == paper_hint) else 1
+        order = figures.index(item)
+        return (same_paper, order)
+
+    # Target figures first: same-paper-with-bytes, then any with-bytes, then
+    # caption-only same-paper figures (context, never visual subjects).
+    ordered = sorted(with_bytes, key=figure_key)
+    # Same-paper-with-bytes first; remaining with-bytes figures fill the
+    # bounded budget in original order (explicit multi-figure questions).
+    # Caption-only figures are context, never visual subjects: include one
+    # same-paper caption-only figure only when no second with-bytes figure
+    # exists to fill the budget.
+    if len(ordered) < max_images and paper_hint is not None:
+        caption_only = [
+            f for f in figures
+            if f not in ordered and f.paper_id == paper_hint
+            and (f.image is None or (not f.image.b64 and not f.image.path))
+        ]
+        ordered = ordered + caption_only[: max(0, max_images - len(ordered))]
+    selected_figures = ordered[:max_images]
+
+    anchor = selected_figures[0] if selected_figures else None
+    texts = [item for item in evidence if item.type == "text"]
+    if anchor is not None:
+        scored = sorted(
+            ((_score_text_for_figure(t, anchor, query), t) for t in texts),
+            key=lambda pair: (-pair[0][0], pair[0][1]),
+        )
+        # Keep only same-paper texts unless none exist at all.
+        same_paper = [t for _, t in scored if t.paper_id == anchor.paper_id]
+        pool = same_paper if same_paper else [t for _, t in scored]
+        selected_texts = pool[:max_texts]
+    else:
+        selected_texts = []
+    return selected_figures, selected_texts
+
+
 def _evidence_contexts_for_vision(
     evidence: tuple[EvidenceItem, ...],
     settings: Settings,
     max_chars: int,
+    *,
+    query: str = "",
 ) -> tuple[list[EvidenceContext], list[ImagePayload], dict[str, str]]:
-    """Build Zone C blocks and provider ``images`` for all figures.
+    """Build Zone C blocks and provider ``images`` for selected figures.
 
-    ``degraded`` maps ``evidence_id -> reason`` for missing/skipped images so
-    the caller can emit the correct ``partial`` status.
+    Compact selection (Phase 9Q): target figure(s) with bytes first, then
+    same-paper text context. ``degraded`` maps ``evidence_id -> reason`` for
+    missing/skipped images so the caller can emit the correct ``partial``
+    status.
     """
-    figures = _figure_items(evidence)
+    selected_figures, selected_texts = select_vision_context(evidence, query)
+    # Fall back to all figures only when selection is empty but figures exist
+    # (e.g. caption-only bundle → honest ``no_evidence`` via degraded map).
+    if not selected_figures:
+        selected_figures = _figure_items(evidence)
     blocks: list[EvidenceContext] = []
     images: list[ImagePayload] = []
     degraded: dict[str, str] = {}
 
-    for item in figures:
+    for item in selected_figures:
         blocks.append(EvidenceContext.from_item(item, max_chars))
         figure_images, _, reason = _resolve_and_encode_for_figure(item, settings)
         if figure_images:
@@ -112,8 +227,8 @@ def _evidence_contexts_for_vision(
         elif reason:
             degraded[item.evidence_id] = reason
 
-    for block in _surrounding_text(evidence, max_chars):
-        blocks.append(block)
+    for item in selected_texts:
+        blocks.append(EvidenceContext.from_item(item, max_chars))
 
     return blocks, images, degraded
 
@@ -201,7 +316,9 @@ class VisionAgent:
 
             resolved_settings = _Settings(_env_file=None, model_provider="mock", log_level="WARNING", log_format="console")  # type: ignore[call-arg]
 
-        blocks, images, degraded = _evidence_contexts_for_vision(evidence, resolved_settings, max_chars_per_item)
+        blocks, images, degraded = _evidence_contexts_for_vision(
+            evidence, resolved_settings, max_chars_per_item, query=ctx.query
+        )
         known_ids = {item.evidence_id for item in evidence}
 
         # Degraded path: no usable images at all.

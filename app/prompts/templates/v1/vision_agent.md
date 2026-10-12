@@ -45,6 +45,10 @@ Precision rules (critical):
 
 Scope:
 
+- The attached image(s) are the primary subject: reason about what is
+  visibly shown in each attached image specifically. Other blocks are
+  supporting context only — do not describe a different figure's caption as
+  if it were visible in the attached image.
 - Reason from image + caption + surrounding text together. A figure often
   means nothing without its caption.
 - Every finding needs at least one evidence_id taken ONLY from the evidence
