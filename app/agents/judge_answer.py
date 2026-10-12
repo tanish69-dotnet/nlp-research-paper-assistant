@@ -97,10 +97,12 @@ class JudgeAgent:
                 dropped.append(f"claim {claim_id} verdict={verdict!r} not allowed")
                 continue
 
-            # Phase 9M: small models omit optional lists. Default them to []
-            # instead of dropping an otherwise valid verdict. Required fields
-            # (claim_id, verdict, evidence_ids_support) stay strict; a
-            # SUPPORTED verdict additionally requires non-empty support below.
+            # Phase 9M/9N: small models omit optional lists or emit them with
+            # the wrong type (e.g. a string instead of a list). Coerce absent
+            # or mistyped optionals to [] instead of dropping an otherwise
+            # valid verdict. Required fields (claim_id, verdict,
+            # evidence_ids_support) stay strict; a SUPPORTED verdict
+            # additionally requires non-empty support below.
             support = entry.get("evidence_ids_support")
             contradict = entry.get("evidence_ids_contradict", [])
             missing = entry.get("missing_aspects", [])
@@ -108,11 +110,9 @@ class JudgeAgent:
                 dropped.append(f"claim {claim_id} evidence_ids_support is not a list")
                 continue
             if not isinstance(contradict, list):
-                dropped.append(f"claim {claim_id} evidence_ids_contradict is not a list")
-                continue
+                contradict = []
             if not isinstance(missing, list):
-                dropped.append(f"claim {claim_id} missing_aspects is not a list")
-                continue
+                missing = []
             if verdict == "SUPPORTED" and not support:
                 dropped.append(f"claim {claim_id} SUPPORTED requires non-empty evidence_ids_support")
                 continue

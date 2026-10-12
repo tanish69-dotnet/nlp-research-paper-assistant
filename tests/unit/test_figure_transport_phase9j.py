@@ -113,3 +113,41 @@ def test_caption_is_not_image_evidence():
     item = adapt_retrieval_record(rec, "1611.04684v1", 0)
     assert item.image is None
     assert item.caption == "Architecture of KEHNN"
+
+
+def test_p2_image_b64_alias_maps_to_imageref():
+    """Phase 9N: P2 ``image_b64``/``image_mime`` keys map to ImageRef{b64}."""
+    from app.evidence.adapter import adapt_retrieval_record
+    from app.evidence.images import decode_and_validate_b64
+    from app.config import Settings
+
+    rec = {
+        "element_id": "elem_000",
+        "type": "figure",
+        "paper_id": "1611.04684v1",
+        "caption": "Figure 1: Architecture",
+        "image_b64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGNgYGBgAAAABQABDQottQAAAABJRU5ErkJggg==",
+        "image_mime": "image/png",
+        "page": None,
+    }
+    item = adapt_retrieval_record(rec, "1611.04684v1", 0)
+    assert item.image is not None and item.image.b64 is not None
+    assert item.page is None
+    data, mime = decode_and_validate_b64(
+        item.image.b64, Settings(_env_file=None)
+    )
+    assert mime == "image/png" and len(data) > 0
+
+
+def test_p2_image_path_still_maps_when_no_b64():
+    from app.evidence.adapter import adapt_retrieval_record
+
+    rec = {
+        "element_id": "elem_001",
+        "type": "figure",
+        "paper_id": "p",
+        "caption": "Figure 1: X",
+        "image_path": "paper_001/fig1.png",
+    }
+    item = adapt_retrieval_record(rec, "p", 0)
+    assert item.image is not None and item.image.path == "paper_001/fig1.png"

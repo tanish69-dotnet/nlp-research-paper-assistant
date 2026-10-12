@@ -45,8 +45,26 @@ def _clean_reference(source: dict[str, Any]) -> str | None:
 
 
 def _image(source: dict[str, Any]) -> ImageRef | None:
-    # Person 2 uses ``image_path`` (a relative PNG). We already enforce
+    # Phase 9N: Person 2 may send ``image_b64``/``image_mime`` alongside the
+    # legacy ``image_path``. b64 wins when present (no filesystem access);
+    # otherwise fall back to the confined path transport. We already enforce
     # exact-one-transport in ``ImageRef``, so we must not supply both.
+    # When b64 is present the legacy absolute ``image_path`` is dropped
+    # entirely — validation must never see a path we do not need.
+    for key in ("image_b64", "image", "b64"):
+        candidate = source.get(key)
+        b64: str | None = None
+        mime: str | None = None
+        if isinstance(candidate, dict):
+            raw_b64 = candidate.get("b64") or candidate.get("image_b64")
+            if isinstance(raw_b64, str) and raw_b64.strip():
+                b64 = raw_b64.strip()
+                mime = candidate.get("mime") or candidate.get("image_mime")
+        elif isinstance(candidate, str) and candidate.strip():
+            b64 = candidate.strip()
+            mime = source.get("image_mime") or source.get("mime")
+        if b64:
+            return ImageRef(b64=b64, mime=mime, sha256=source.get("sha256"))
     raw = source.get("image_path") or source.get("image")
     if not raw:
         return None

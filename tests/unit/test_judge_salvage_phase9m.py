@@ -197,8 +197,39 @@ def test_malformed_field_type_still_dropped() -> None:
 
     verdicts, agent_run = run(JudgeAgent(provider).judge([_claim()], _bundle(), _ctx()))
 
+    # Phase 9N: required-field mistypes (support as string) still fail closed.
+    # Optional-field mistypes are coerced (see the missing_aspects test below).
     assert agent_run.status == "error"
     assert all(v.verdict == "UNSUPPORTED" and v.verifier == "deterministic" for v in verdicts)
+
+
+def test_mistyped_optional_lists_are_coerced_not_dropped() -> None:
+    """missing_aspects as a string must not sink an otherwise valid verdict."""
+    provider = MockModelProvider(
+        responses=[
+            (
+                "Judge",
+                json.dumps(
+                    {
+                        "verdicts": [
+                            {
+                                "claim_id": "cl1",
+                                "verdict": "SUPPORTED",
+                                "evidence_ids_support": ["e_fig"],
+                                "missing_aspects": "none",
+                            }
+                        ]
+                    }
+                ),
+            )
+        ]
+    )
+
+    verdicts, agent_run = run(JudgeAgent(provider).judge([_claim()], _bundle(), _ctx()))
+
+    assert agent_run.status == "ok"
+    assert verdicts[0].verdict == "SUPPORTED"
+    assert verdicts[0].missing_aspects == []
 
 
 def test_live_shaped_minimal_supported_verdict_passes() -> None:
