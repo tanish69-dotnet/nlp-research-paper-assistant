@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResearchLens — Research Paper Assistant</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 900px; margin: 0 auto; padding: 1.5rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #8884; padding-bottom: 0.25rem; }
+  .sub { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  label { display: block; margin: 0.6rem 0 0.2rem; font-weight: 600; font-size: 0.9rem; }
+  input[type=text], input[type=number], textarea { width: 100%; box-sizing: border-box; padding: 0.5rem; font: inherit; }
+  textarea { min-height: 4rem; resize: vertical; }
+  button { margin-top: 0.6rem; padding: 0.5rem 1.2rem; font: inherit; cursor: pointer; }
+  button:disabled { cursor: wait; opacity: 0.6; }
+  .row { display: flex; gap: 1rem; } .row > div { flex: 1; }
+  .card { border: 1px solid #8885; border-radius: 8px; padding: 1rem; margin-top: 0.8rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+  .ok { background: #d4edda; color: #155724; } .warn { background: #fff3cd; color: #856404; }
+  .err { background: #f8d7da; color: #721c24; } .info { background: #d1ecf1; color: #0c5460; }
+  .answer { white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-top: 0.5rem; }
+  th, td { border: 1px solid #8884; padding: 0.3rem 0.5rem; text-align: left; }
+  .muted { color: #666; font-size: 0.82rem; }
+  .hidden { display: none; }
+  progress { width: 100%; }
+  details { margin-top: 0.5rem; } summary { cursor: pointer; font-weight: 600; }
+  #status-line { margin-top: 0.5rem; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<h1>ResearchLens — Research Paper Assistant</h1>
+<div class="sub">Local demo UI. Upload a PDF, then ask questions grounded in its text, tables, and figures.</div>
+
+<h2>1. Services</h2>
+<div class="row">
+  <div><label for="p2base">Retrieval service (Person 2)</label><input id="p2base" type="text" value="http://127.0.0.1:8000"></div>
+  <div><label for="nlpbase">Reasoning service (this API)</label><input id="nlpbase" type="text" value=""></div>
+</div>
+<div id="status-line"><span class="muted">Service status unknown — press Check.</span></div>
+<button id="check-btn" type="button">Check services</button>
+
+<h2>2. Upload a paper (PDF)</h2>
+<label for="pdf">PDF file (max 32 MiB)</label>
+<input id="pdf" type="file" accept="application/pdf,.pdf">
+<label for="paper-id">Paper ID (optional — derived from title if empty)</label>
+<input id="paper-id" type="text" placeholder="e.g. my_paper_001">
+<label for="paper-title">Title (optional)</label>
+<input id="paper-title" type="text" placeholder="e.g. Sparse Retrieval with Structured Context">
+<button id="upload-btn" type="button">Upload and index</button>
+<progress id="upload-progress" class="hidden" max="100" value="0"></progress>
+<div id="upload-result"></div>
+
+<h2>3. Ask a question</h2>
+<label for="query">Question</label>
+<textarea id="query" placeholder="Which method performed best in Table 1?  /  Describe Figure 1."></textarea>
+<div class="row">
+  <div><label for="topk">Top K evidence</label><input id="topk" type="number" value="8" min="1" max="50"></div>
+  <div><label for="scope">Paper IDs, comma-separated (optional — blank searches all)</label><input id="scope" type="text" placeholder="e.g. live_9n_001"></div>
+</div>
+<button id="ask-btn" type="button">Ask</button>
+<div id="answer-result"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const nlpBase = () => $("nlpbase").value.trim() || window.location.origin;
+const esc = (s) => String(s == null ? "" : s);
+
+function setHtml(el, text) { el.textContent = text; }  // never innerHTML with model output
+
+function badge(text, cls) {
+  const s = document.createElement("span");
+  s.className = "badge " + cls;
+  s.textContent = text;
+  return s;
+}
+
+async function checkServices() {
+  const line = $("status-line");
+  line.textContent = "Checking…";
+  const out = [];
+  try {
+    const r = await fetch($("p2base").value.replace(/\/$/, "") + "/health");
+    out.push("retrieval /health: " + r.status + (r.ok ? " OK" : " FAIL"));
+  } catch (e) { out.push("retrieval /health: UNREACHABLE (" + e + ")"); }
+  try {
+    const r = await fetch(nlpBase() + "/api/v1/health");
+    const j = await r.json();
+    out.push("reasoning /health: " + r.status + " " + (j.status || ""));
+  } catch (e) { out.push("reasoning /health: UNREACHABLE (" + e + ")"); }
+  line.textContent = out.join("  ·  ");
+}
+
+async function uploadPdf() {
+  const box = $("upload-result"); box.innerHTML = "";
+  const file = $("pdf").files[0];
+  if (!file) { box.appendChild(badge("No file selected", "err")); return; }
+  const btn = $("upload-btn"); btn.disabled = true;
+  const prog = $("upload-progress"); prog.classList.remove("hidden"); prog.value = 0;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    if ($("paper-id").value.trim()) form.append("paper_id", $("paper-id").value.trim());
+    if ($("paper-title").value.trim()) form.append("title", $("paper-title").value.trim());
+    const xhr = new XMLHttpRequest();
+    const done = await new Promise((resolve, reject) => {
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) prog.value = Math.round(100 * e.loaded / e.total); };
+      xhr.onload = () => resolve(xhr);
+      xhr.onerror = () => reject(new Error("upload failed (network)"));
+      xhr.open("POST", $("p2base").value.replace(/\/$/, "") + "/ingest-pdf");
+      xhr.send(form);
+    });
+    prog.value = 100;
+    let body = {};
+    try { body = JSON.parse(done.responseText); } catch (e) { body = { detail: done.responseText.slice(0, 500) }; }
+    const card = document.createElement("div"); card.className = "card";
+    if (done.status >= 200 && done.status < 300) {
+      card.appendChild(badge("Indexed", "ok"));
+      const p = document.createElement("p");
+      setHtml(p, "paper_id=" + body.paper_id + "  elements=" + body.elements +
+        " (text=" + body.text_elements + " table=" + body.table_elements +
+        " figure=" + body.figure_elements + " with_bytes=" + body.figures_with_bytes + ")" +
+        "  chunks=" + body.chunks_created);
+      card.appendChild(p);
+      if ((body.warnings || []).length) {
+        const w = document.createElement("p"); w.className = "muted";
+        setHtml(w, "warnings: " + body.warnings.join("; "));
+        card.appendChild(w);
+      }
+      const hint = document.createElement("p"); hint.className = "muted";
+      setHtml(hint, "Tip: paste this paper_id into the Paper IDs box below to scope questions to it.");
+      card.appendChild(hint);
+    } else {
+      card.appendChild(badge("Upload failed: HTTP " + done.status, "err"));
+      const p = document.createElement("p"); setHtml(p, body.detail || JSON.stringify(body).slice(0, 500));
+      card.appendChild(p);
+    }
+    box.appendChild(card);
+  } catch (e) {
+    box.appendChild(badge("Upload failed: " + e, "err"));
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => prog.classList.add("hidden"), 800);
+  }
+}
+
+async function ask() {
+  const box = $("answer-result"); box.innerHTML = "";
+  const q = $("query").value.trim();
+  if (!q) { box.appendChild(badge("Type a question first", "err")); return; }
+  const btn = $("ask-btn"); btn.disabled = true;
+  const wait = document.createElement("p"); wait.className = "muted";
+  setHtml(wait, "Reasoning… (vision questions can take ~60s on local GPU)");
+  box.appendChild(wait);
+  try {
+    const payload = { query: q, top_k: parseInt($("topk").value, 10) || 8 };
+    const scope = $("scope").value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (scope.length) payload.paper_ids = scope;
+    const r = await fetch(nlpBase() + "/api/v1/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await r.json();
+    box.innerHTML = "";
+    const card = document.createElement("div"); card.className = "card";
+    if (!r.ok) {
+      card.appendChild(badge("Error HTTP " + r.status, "err"));
+      const p = document.createElement("p");
+      setHtml(p, (body.code ? "[" + body.code + "] " : "") + (body.detail || JSON.stringify(body).slice(0, 500)));
+      card.appendChild(p);
+      box.appendChild(card);
+      return;
+    }
+    const vstat = (body.verification || {}).status || "unknown";
+    card.appendChild(badge("verification: " + vstat, vstat === "supported" ? "ok" : (vstat === "unverified" ? "err" : "warn")));
+    card.appendChild(badge("pipeline: " + (body.status || "?"), body.status === "ok" ? "ok" : "warn"));
+    const ans = document.createElement("p"); ans.className = "answer"; setHtml(ans, body.answer || "(empty)");
+    card.appendChild(ans);
+
+    if ((body.citations || []).length) {
+      const h = document.createElement("h3"); setHtml(h, "Citations"); card.appendChild(h);
+      const t = document.createElement("table");
+      const head = document.createElement("tr");
+      ["id", "paper", "type", "reference", "page"].forEach((c) => { const th = document.createElement("th"); setHtml(th, c); head.appendChild(th); });
+      t.appendChild(head);
+      body.citations.forEach((c) => {
+        const tr = document.createElement("tr");
+        [c.citation_id, c.paper_id, c.type, c.reference, (c.page == null ? "—" : String(c.page))].forEach((v) => {
+          const td = document.createElement("td"); setHtml(td, v); tr.appendChild(td);
+        });
+        t.appendChild(tr);
+      });
+      card.appendChild(t);
+    }
+    if ((body.claims || []).length) {
+      const det = document.createElement("details");
+      const sum = document.createElement("summary"); setHtml(sum, "Reasoning (" + body.claims.length + " claims)");
+      det.appendChild(sum);
+      body.claims.forEach((c) => {
+        const p = document.createElement("p"); p.className = "muted";
+        setHtml(p, "[" + ((c.verification || {}).verdict || "unverified") + "] (" + c.kind + ") " + c.text + "  — " + (c.evidence_ids || []).join(", "));
+        det.appendChild(p);
+      });
+      card.appendChild(det);
+    }
+    const meta = document.createElement("p"); meta.className = "muted";
+    const timings = ((body.metadata || {}).timings_ms) || {};
+    setHtml(meta, "request_id=" + body.request_id +
+      "  total_ms=" + (timings.total == null ? "?" : timings.total) +
+      "  agents=" + JSON.stringify((body.metadata || {}).agent_status || {}) +
+      (((body.metadata || {}).degraded || []).length ? "  degraded=" + body.metadata.degraded.join("; ") : ""));
+    card.appendChild(meta);
+    box.appendChild(card);
+  } catch (e) {
+    box.appendChild(badge("Request failed: " + e, "err"));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("check-btn").addEventListener("click", checkServices);
+$("upload-btn").addEventListener("click", uploadPdf);
+$("ask-btn").addEventListener("click", ask);
+</script>
+</body>
+</html>

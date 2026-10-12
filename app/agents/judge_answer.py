@@ -315,7 +315,20 @@ class JudgeAgent:
         vision_provider: ModelProvider | None = None,
     ) -> tuple[list[ClaimVerification], AgentRun]:
         started = time.perf_counter()
-        evidence_ctx = self._evidence_contexts(bundle, max_chars_per_item)
+        # Compact judge context: only evidence cited by the claims under
+        # review (plus their same-paper figure/text neighbors are already in
+        # the claim ids). The 1.5B text judge has a 4K context; sending the
+        # whole 8-item bundle overflows it (observed: 4406 > 4096 tokens).
+        cited_ids = {eid for claim in claims for eid in claim.evidence_ids}
+        cited_items = [item for item in bundle.evidence if item.evidence_id in cited_ids]
+        scoped_bundle = EvidenceBundle(
+            papers=list(bundle.papers),
+            evidence=cited_items or list(bundle.evidence),
+            query=bundle.query,
+            retrieval=bundle.retrieval,
+            warnings=list(bundle.warnings),
+        )
+        evidence_ctx = self._evidence_contexts(scoped_bundle, max_chars_per_item)
         known = {item.evidence_id for item in bundle.evidence}
         claims_by_id = {claim.claim_id: claim for claim in claims}
         by_evidence_id = {item.evidence_id: item for item in bundle.evidence}

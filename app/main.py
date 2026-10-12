@@ -101,6 +101,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(analyze.router, prefix=API_PREFIX)
     app.include_router(reason.router, prefix=API_PREFIX)
     app.include_router(ask.router, prefix=API_PREFIX)
+
+    # Local demo UI (same origin, no build step): GET /ui serves the
+    # upload + Q&A page that talks to Person 2 :8000 and this API.
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    _ui_index = Path(__file__).resolve().parent / "static" / "index.html"
+
+    @app.get("/ui", include_in_schema=False)
+    async def _demo_ui() -> FileResponse:
+        return FileResponse(_ui_index, media_type="text/html")
+
     return app
 
 
