@@ -15,6 +15,7 @@ from app.agents.query_analyzer import (
     QueryAnalyzer,
     detect_reference_hints,
     default_plan,
+    has_table_intent,
 )
 from app.agents.table_agent import TableAgent
 from app.agents.table_ops import (
@@ -41,6 +42,7 @@ __all__ = [
     "default_plan",
     "delta_between",
     "detect_reference_hints",
+    "has_table_intent",
     "infer_metric_direction",
     "lookup_cell",
     "new_agent_run",

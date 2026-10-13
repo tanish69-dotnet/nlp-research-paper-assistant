@@ -130,10 +130,100 @@ def _table_data(source: dict[str, Any]) -> TableData | None:
     raw = source.get("table_data")
     if not isinstance(raw, dict):
         return None
+    normalized = _repair_row_label_offset(raw)
     try:
-        return TableData.model_validate(raw)
+        return TableData.model_validate({k: v for k, v in normalized.items() if not k.startswith("__")})
     except Exception:
         return None
+
+
+def _repair_row_label_offset(raw: dict[str, Any]) -> dict[str, Any]:
+    """Repair a missing row-label header (KEHNN Table 4 corpus defect).
+
+    Some corpus records store ``headers=["R2@1", ...]`` while every row still
+    carries its label in ``row[0]`` (``["KEHNN", "0.786", ...]``) and the
+    Markdown ``content`` shows the true columns. Deterministic metric scans
+    treat headers/rows as aligned, so a one-column offset misattributes every
+    metric (KEHNN's ``R10@5=0.819`` would trace as ``R10@2``). When the header
+    count is exactly one short of the row width AND all row-first cells are
+    non-numeric AND the content Markdown carries one extra leading header,
+    restore the missing label header. Otherwise return the record unchanged.
+    """
+    headers = raw.get("headers")
+    rows = raw.get("rows")
+    if not isinstance(headers, list) or not isinstance(rows, list):
+        return raw
+    header_list = [h for h in headers if isinstance(h, str) and h.strip()]
+    if not header_list:
+        return raw
+    widths = {len(row) for row in rows if isinstance(row, (list, tuple))}
+    if len(widths) != 1:
+        return raw
+    width = next(iter(widths))
+    if width != len(header_list) + 1:
+        return raw
+    first_cells = [
+        str(row[0]).strip()
+        for row in rows
+        if isinstance(row, (list, tuple)) and row and row[0] is not None and str(row[0]).strip()
+    ]
+    if not first_cells:
+        return raw
+    non_numeric_first = True
+    for cell in first_cells:
+        try:
+            float(str(cell).strip().rstrip("%"))
+            non_numeric_first = False
+            break
+        except ValueError:
+            continue
+    if not non_numeric_first:
+        return raw
+    # Repair shape: rows carry row[0] labels while `headers` omits the label
+    # column. Two confirmations before rewriting:
+    # (a) the Markdown content header row names the dropped label column
+    #     (its header has `width` cells), or
+    # (b) row[1] parses as numeric for every row, i.e. `headers[i]` aligns
+    #     with `row[i+1]` under the offset hypothesis.
+    content = source_content_for_header_check(raw)
+    markdown_header: list[str] = []
+    if content is not None:
+        markdown_header = _markdown_header_cells(content)
+    if markdown_header and len(markdown_header) == width and [
+        h.strip().lower() for h in markdown_header[1:]
+    ] == [h.strip().lower() for h in header_list]:
+        repaired = dict(raw)
+        repaired["headers"] = [markdown_header[0] or "Model"] + list(headers)
+        return repaired
+    offset_holds = True
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) != width:
+            offset_holds = False
+            break
+        try:
+            float(str(row[1]).strip().rstrip("%"))
+        except (ValueError, IndexError):
+            offset_holds = False
+            break
+    if not offset_holds:
+        return raw
+    repaired = dict(raw)
+    repaired["headers"] = ["Model"] + list(headers)
+    return repaired
+
+
+def source_content_for_header_check(raw: dict[str, Any]) -> str | None:
+    """Content string paired with a table_data record (attached by caller)."""
+    content = raw.get("__paired_content")
+    return content if isinstance(content, str) else None
+
+
+def _markdown_header_cells(content: str) -> list[str]:
+    for line in (content or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            return [cell.strip() for cell in stripped.strip("|").split("|")]
+    return []
 
 
 def _content(source: dict[str, Any]) -> str:
@@ -234,7 +324,13 @@ def adapt_retrieval_record(source: dict[str, Any], paper_id_fallback: str, rank:
 
     image = _image(source)
     content = _figure_content(source)
-    table_data = _table_data(source)
+    table_data_raw = source.get("table_data")
+    if isinstance(table_data_raw, dict):
+        # Pair the Markdown content with table_data so the row-label repair
+        # can confirm the true column count from the human-readable header.
+        table_data_raw = {**table_data_raw, "__paired_content": _content(source)}
+    _table_data_source = {**source, "table_data": table_data_raw} if table_data_raw is not None else source
+    table_data = _table_data(_table_data_source)
     if raw_type != "figure" and image is not None:
         # A stray image_path on a "text" record is still meaningful — keep it.
         pass

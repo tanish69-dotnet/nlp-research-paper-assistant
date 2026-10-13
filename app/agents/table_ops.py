@@ -186,8 +186,11 @@ def best_in_column(
             extra={"candidates": candidates},
         )
 
-    comparator = (lambda triple: triple[2]) if inferred else (lambda triple: -triple[2])
-    row_idx, label, value = max(candidates, key=comparator) if inferred else min(candidates, key=lambda t: t[2])
+    row_idx, label, value = (
+        max(candidates, key=lambda triple: triple[2])
+        if inferred
+        else min(candidates, key=lambda triple: triple[2])
+    )
     direction = "higher-is-better" if inferred else "lower-is-better"
     extra = {"row_index": row_idx, "candidates": candidates, "direction": direction}
     detail = f"{label} has the {'highest' if inferred else 'lowest'} {column} of {value:g} in {evidence_id} ({direction})"

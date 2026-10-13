@@ -28,6 +28,10 @@ Detection rules:
 - Deterministic reference hints are provided separately. Bind explicit mentions
   such as "Table 3", "Figure 5", "fig. 2", "Section 4.2" to target_references.
   Do NOT invent references that do not appear in the question.
+- A "table-intent wording detected" hint means the question asks about
+  reported values even without a Table N token (best/highest/lowest method,
+  compare values/rows/columns, difference between scores, summarize results).
+  In that case include "table" in required_modalities with a table task.
 - Classify required_modalities conservatively: include a modality only when the
   question wording asks for it (table/figure/number comparison, trends, charts)
   or when it targets a reference of that kind. When genuinely uncertain, use

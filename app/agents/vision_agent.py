@@ -370,18 +370,10 @@ class VisionAgent:
 
             payload = json.loads(raw)
         except Exception as exc:  # noqa: BLE001
-            # Retry for malformed JSON: the shared repair path is handled
-            # inside ``complete_json``, but raw ChatRequest usage here bypasses
-            # it — report directly.
-            try:
-                pass
-            except Exception:
-                pass
-            # For phase 3 simplicity we treat any vision provider failure as
-            # degraded rather than letting it become an unhandled exception.
-            import importlib
-
-            if "json.JSONDecodeError" in type(exc).__name__ or isinstance(exc, ValueError):
+            # Raw ChatRequest usage bypasses the shared ``complete_json``
+            # repair path; offer one malformed-JSON repair retry here. Any
+            # other provider failure degrades rather than raising.
+            if isinstance(exc, ValueError):
                 # One repair retry for malformed vision output.
                 try:
                     repaired = await self._provider.chat(
@@ -452,10 +444,15 @@ class VisionAgent:
         # (tracked via the degraded map: figures WITHOUT an entry produced
         # payloads). Text-only citations can never ground a visual claim.
         degraded_ids = set(degraded)
+        # Only figures represented in this compact call are eligible.  A
+        # previously broad set here allowed the model to cite an unselected
+        # same-paper figure whose bytes were never attached.
+        selected_ids = {block.evidence_id for block in blocks}
         usable_figure_ids = {
             item.evidence_id
             for item in evidence
             if item.type == "figure"
+            and item.evidence_id in selected_ids
             and item.evidence_id in known_ids
             and item.evidence_id not in degraded_ids
         }
@@ -545,6 +542,11 @@ class VisionAgent:
                 break
         if target_eid is None:
             return [], ["retry skipped: no usable figure"]
+        # Only the target figure's image was attached to the retry call
+        # (images[:1]), so only claims citing the target figure can be
+        # image-verified by it. Never let a retry on figure A accept a claim
+        # about figure B whose bytes were not supplied to this call.
+        retry_usable = {target_eid}
         try:
             response = await self._provider.chat(
                 ChatRequest(
@@ -568,7 +570,7 @@ class VisionAgent:
         raw = payload.get("findings") if isinstance(payload, dict) else None
         if not isinstance(raw, list):
             return [], ["retry payload.findings is not a list"]
-        return _validated_findings(raw, known_ids, usable_figure_ids=usable_figure_ids)
+        return _validated_findings(raw, known_ids, usable_figure_ids=retry_usable)
 
     async def run(self, ctx: AgentContext) -> AgentRun:
         _, run = await self.run_for_evidence(ctx, ctx.evidence)

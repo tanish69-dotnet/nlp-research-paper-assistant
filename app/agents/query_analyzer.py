@@ -42,6 +42,24 @@ _PAPER_ID_REFERENCE_RE = re.compile(
     r"^\s*(?:arxiv:)?\d{4}\.\d{4,5}(?:v\d+)?\s*$", re.IGNORECASE
 )
 
+# Table-intent signals for questions that need structured table reasoning
+# even without an explicit "Table N" token (best/worst, comparisons,
+# deltas, row/column lookups). Kept narrow: comparative/superlative wording
+# about reported values, scores, or methods.
+_TABLE_INTENT_RE = re.compile(
+    r"\b(?:"
+    r"which\s+(?:method|model|system|approach|variant)\s+(?:perform(?:s|ed)?|achieve(?:s|d)?|has|have|is)\s+(?:the\s+)?(?:best|highest|lowest|top|worst)"
+    r"|(?:best|highest|lowest|top|worst)\s+(?:method|model|system|approach|variant|value|score|result|f1|accuracy)"
+    r"|compar(?:e|ison)(?:\s+\w+){0,3}\s+(?:values?|scores?|results?|rows?|columns?|methods?|models?)"
+    r"|difference\s+between\s+(?:two\s+)?(?:reported\s+)?(?:scores?|values?|results?)"
+    r"|what\s+(?:is|are)\s+the\s+difference\b"
+    r"|summariz(?:e|e\s+the)\s+(?:table|results)"
+    r"|(?:highest|lowest)\s+(?:value|score|f1|accuracy)"
+    r"|across\s+papers"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 def _is_paper_id_reference(value: str) -> bool:
     """Paper identity is not a table/figure citation reference."""
@@ -97,11 +115,18 @@ def detect_reference_hints(question: str) -> list[ReferenceHint]:
     return hints
 
 
+def has_table_intent(question: str) -> bool:
+    """Whether the wording needs structured table reasoning (no Table N needed)."""
+    return bool(_TABLE_INTENT_RE.search(question or ""))
+
+
 def default_plan(question: str, paper_ids: list[str] | None = None) -> QueryPlan:
     """Conservative fallback when the model is unavailable or unusable.
 
     Uses deterministic hints only and routes everything through text with a
     low confidence, so the pipeline degrades honestly (ARCHITECTURE §4.7).
+    Table-intent wording additionally routes a table task (same evidence,
+    honest confidence) so best/worst/comparison questions reach TableAgent.
     """
     hints = detect_reference_hints(question)
     modalities: list[str] = []
@@ -114,6 +139,8 @@ def default_plan(question: str, paper_ids: list[str] | None = None) -> QueryPlan
         modalities = ["text"]
     elif "text" not in modalities:
         modalities.append("text")
+    if has_table_intent(question) and "table" not in modalities:
+        modalities.insert(0, "table")
 
     tasks = [
         AgentTask(
@@ -136,12 +163,22 @@ def default_plan(question: str, paper_ids: list[str] | None = None) -> QueryPlan
     )
 
 
-def _hints_text(hints: list[ReferenceHint], evidence: tuple[EvidenceItem, ...]) -> str:
+def _hints_text(
+    hints: list[ReferenceHint],
+    evidence: tuple[EvidenceItem, ...],
+    *,
+    table_intent: bool = False,
+) -> str:
     lines = ["Deterministic reference hints found in the question:"]
     if hints:
         lines.extend(f"- {hint.canonical} ({hint.kind})" for hint in hints)
     else:
         lines.append("- none")
+    # Table-intent wording is a deterministic signal too: surface it so the
+    # model binds best/worst/comparison questions to the table modality even
+    # without an explicit "Table N" token.
+    if table_intent:
+        lines.append("- table-intent wording detected (best/worst/comparison/scores)")
     lines.append("")
     lines.append("Supplied evidence (ids and labels only — full text is analyzed by other agents):")
     if evidence:
@@ -188,7 +225,8 @@ class QueryAnalyzer:
         template = self._template_loaded()
 
         user_content = (
-            f"QUESTION:\n{ctx.query}\n\n{_hints_text(hints, evidence)}"
+            f"QUESTION:\n{ctx.query}\n\n"
+            f"{_hints_text(hints, evidence, table_intent=has_table_intent(ctx.query))}"
         )
         messages = assemble_three_zone(template, user_content, evidence=[])
         # The analyzer only ever sees summaries (ids/labels), never evidence

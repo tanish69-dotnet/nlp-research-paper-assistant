@@ -72,6 +72,89 @@ def _cell_values_for_table(table: TableData) -> dict[float, str]:
     return out
 
 
+def _evidence_text_for(item: Any) -> str:
+    """All searchable text for one evidence item (content + caption + table)."""
+    parts = [str(getattr(item, "content", "") or ""), str(getattr(item, "caption", "") or "")]
+    table = getattr(item, "table_data", None)
+    if table is not None:
+        try:
+            parts.append(" ".join(str(h) for h in (table.headers or [])))
+            for row in table.rows or []:
+                parts.append(" ".join(str(c) for c in row if c is not None))
+        except AttributeError:
+            pass
+    return "\n".join(part for part in parts if part)
+
+
+# Physical property / measurement nouns. When a claim names one of these and
+# attaches a number to it, every cited evidence item must contain the property
+# word for the number to count as grounded. Ordinary verbs ("achieves",
+# "attains") and generic nouns ("method", "table") are intentionally absent —
+# paraphrase must not fail grounding.
+_PROPERTY_WORDS = frozenset(
+    {
+        "pixel", "pixels", "px", "width", "height", "second", "seconds",
+        "millisecond", "milliseconds", "ms", "param", "params", "parameter",
+        "parameters", "epoch", "epochs", "token", "tokens", "percent",
+        "percentage", "latency", "perplexity", "loss",
+    }
+)
+
+
+def _claim_property_words(text: str) -> set[str]:
+    words = set(re.findall(r"[A-Za-z%]+", (text or "").lower()))
+    normalized = {w.rstrip("s") if w not in {"ms", "loss"} else w for w in words}
+    return {w for w in normalized if w in _PROPERTY_WORDS or w.rstrip("s") in _PROPERTY_WORDS}
+
+
+def _unbound_numeric_assertion(claim: Claim, bundle: EvidenceBundle) -> str | None:
+    """Detect numbers whose measured property lacks support in cited evidence.
+
+    A number appearing *somewhere* in the evidence is not sufficient: when the
+    claim attaches the number to a physical property (pixel width, seconds,
+    parameter count, ...), at least one cited evidence item must contain BOTH
+    the numeric value AND the property word. A table F1 of 0.77 therefore
+    cannot substantiate a figure's pixel width. Claims without property words
+    ("Method A achieves 0.77") defer to the value check + LLM judge, so valid
+    paraphrases keep working. Returns a detail string when unbound, else None.
+    """
+    numbers = _parse_numbers_from_claim(claim.text)
+    if not numbers:
+        return None
+    properties = _claim_property_words(claim.text)
+    if not properties:
+        return None
+    by_id = {item.evidence_id: item for item in bundle.evidence}
+    for value in numbers:
+        bound = False
+        for eid in claim.evidence_ids:
+            item = by_id.get(eid)
+            if item is None:
+                continue
+            haystack = _evidence_text_for(item).lower()
+            found_value = any(
+                token.lower() in haystack
+                for token in (f"{value:g}", f"{value:.1f}", f"{value:.2f}")
+            )
+            if not found_value and abs(value) < 1.0 and f"{value * 100:g}" in haystack:
+                found_value = True
+            if not found_value:
+                continue
+            # The property word must co-occur in the SAME item.
+            if any(
+                prop in haystack or prop.rstrip("s") in haystack
+                for prop in properties
+            ):
+                bound = True
+                break
+        if not bound:
+            return (
+                f"numeric value {value:g} with property "
+                f"{sorted(properties)[0]!r} lacks joint support in cited evidence"
+            )
+    return None
+
+
 def maybe_contradicted_by_table(
     claim: Claim,
     bundle: EvidenceBundle,
@@ -120,6 +203,7 @@ def validate_against_bundle(
     - Empty claim text → UNSUPPORTED
     - Unknown evidence id → UNSUPPORTED (with missing aspect note)
     - Numeric contradiction → CONTRADICTED
+    - Unbound numeric assertion (number + unit/subject not jointly evidenced) → UNSUPPORTED
     Otherwise → (None, None) meaning "let the LLM judge decide".
     """
     supply = {item.evidence_id for item in bundle.evidence}
@@ -133,6 +217,13 @@ def validate_against_bundle(
     unknown = claim_has_unknown_evidence(claim, supply)
     if unknown:
         return "UNSUPPORTED", f"unknown evidence ids: {', '.join(unknown)}"
+
+    # Phase 9Q+: strict numeric grounding — a number that appears *somewhere*
+    # in the evidence is not sufficient. The specific quantity (number +
+    # unit/subject context) must be jointly present in the cited evidence.
+    unbound = _unbound_numeric_assertion(claim, bundle)
+    if unbound is not None:
+        return "UNSUPPORTED", unbound
 
     # A citation to a table is not proof that the table contains the values
     # needed by a numerical/comparative claim.  This gate runs before the LLM

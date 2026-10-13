@@ -36,16 +36,43 @@ ALLOWED_KINDS = frozenset(
 )
 
 
+def _table_has_row_label_column(table: Any) -> bool:
+    """Whether the first header is a row label (all row[0] cells are non-numeric).
+
+    Retrieval corpora are inconsistent: some tables carry an explicit label
+    header (``["Model", "R2@1", ...]``) while others drop it
+    (``["R2@1", ...]`` with the label still in ``row[0]``). The metric-column
+    scan must not treat a missing-label header list as one-metric-short.
+    """
+    from app.agents import table_ops as _ops  # local import: avoid circular
+
+    if not table.headers or not table.rows:
+        return False
+    first_cells = [
+        str(row[0]).strip()
+        for row in table.rows
+        if row and row[0] is not None and str(row[0]).strip()
+    ]
+    if not first_cells:
+        return False
+    return all(_ops._coerce_float(cell) is None for cell in first_cells)  # noqa: SLF001
+
+
 def _numeric_columns(table_item: EvidenceItem) -> list[str]:
     if table_item.table_data is None:
         return []
-    # Heuristic: every non-first column that contains at least one parseable float
-    # is a candidate for "metric" ordering.
+    # Heuristic: every metric column that contains at least one parseable
+    # float is a candidate for "metric" ordering. Row-label headers are
+    # skipped only when the header list actually carries one.
     from app.agents import table_ops as _ops  # local import: avoid circular
 
-    headers = table_item.table_data.headers
+    candidates = (
+        table_item.table_data.headers[1:]
+        if _table_has_row_label_column(table_item.table_data)
+        else table_item.table_data.headers
+    )
     numeric: list[str] = []
-    for header in headers[1:]:
+    for header in candidates:
         values = _ops._numeric_column_values(table_item.table_data, header)  # noqa: SLF001
         if values:
             numeric.append(header)
@@ -100,10 +127,26 @@ class TableAgent:
                 continue
 
             numeric_cols = _numeric_columns(item)
-            # Focus on the column mentioned in the query (header substring match).
+            selected_metric = _selected_metric_label(query)
+            # Focus on the column mentioned in the query. A header matches
+            # when it appears in the question (e.g. "R10@1") OR the question
+            # names the column's metric family — the KEHNN corpus stores the
+            # first header as a row offset, so its short label ("R2@1") can
+            # otherwise be missed entirely. An explicit metric token
+            # (R<n>@k) pins the trace to that column alone so a nearby
+            # caption-only table cannot dilute the authoritative trace.
             focused: list[str] = []
             for col in numeric_cols:
-                if col.strip().lower() in query_lower:
+                col_lower = col.strip().lower()
+                if selected_metric is not None:
+                    if col_lower == selected_metric:
+                        focused.append(col)
+                    continue
+                if col_lower and (
+                    col_lower in query_lower
+                    or query_lower in col_lower
+                    or any(part and part in query_lower for part in col_lower.replace("@", " ").split())
+                ):
                     focused.append(col)
             if not focused and any(w in query_lower for w in ("best", "highest", "lowest", "most", "rank", "top", "winning")):
                 # A broad "which model is best" question should expose every
@@ -266,6 +309,21 @@ class TableAgent:
     async def run(self, ctx: AgentContext) -> AgentRun:
         _, run = await self.run_for_evidence(ctx, ctx.evidence)
         return run
+
+
+def _selected_metric_label(query: str) -> str | None:
+    """Explicit ``R<n>@k`` metric token named in the question, if any.
+
+    A question pinning one metric ("highest R2@1") must trace that column
+    alone; multi-metric traces on the same table dilute the authoritative
+    signal when caption-only neighbor tables share the bundle.
+    """
+    import re
+
+    match = re.search(r"\br\s*(\d+)\s*@\s*(\d+)\b", query or "", re.IGNORECASE)
+    if not match:
+        return None
+    return f"r{match.group(1)}@{match.group(2)}"
 
 
 def _requires_table_values(query: str) -> bool:
