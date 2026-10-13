@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     judge_enabled: bool = True
 
+    # --- deployment guards ----------------------------------------------------
+    disable_uploads: bool = False  # demo safety: block heavy ingest endpoints
+    max_upload_mb: int = Field(default=32, ge=1, le=200)  # surfaced to the UI
+
     # --- validators ---------------------------------------------------------
     @field_validator("cors_origins", mode="before")
     @classmethod

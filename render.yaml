@@ -1,0 +1,55 @@
+# Render blueprint: reasoning service only.
+#
+# The retrieval service (torch/transformers/Chroma, ~2 GB RAM) does NOT fit
+# Render free (512 MB) and has no persistent disk there. Deploy retrieval on
+# Hugging Face Spaces (Docker, CPU Basic 16 GB) and point RETRIEVAL_BASE_URL
+# at it. See DEPLOY.md for the full topology.
+services:
+  - type: web
+    name: researchlens-reasoning
+    runtime: docker
+    repo: <SET-ME: main GitHub repo URL>
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: REASONING_ENV
+        value: prod
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: json
+      - key: MODEL_PROVIDER
+        value: openai_compat
+      - key: OPENAI_COMPAT_BASE_URL
+        sync: false # set in dashboard: your inference endpoint
+      - key: OPENAI_COMPAT_API_KEY
+        sync: false # set in dashboard: provider API key (secret)
+      - key: ANALYZER_MODEL
+        value: qwen2.5:1.5b
+      - key: TEXT_MODEL
+        value: qwen2.5:1.5b
+      - key: TABLE_MODEL
+        value: qwen2.5:1.5b
+      - key: VISION_MODEL
+        value: qwen2.5vl:3b
+      - key: JUDGE_MODEL
+        value: qwen2.5:1.5b
+      - key: GENERATOR_MODEL
+        value: qwen2.5:1.5b
+      - key: RETRIEVAL_MODE
+        value: http
+      - key: RETRIEVAL_BASE_URL
+        sync: false # set in dashboard: https://<retrieval-space>.hf.space
+      - key: RETRIEVAL_TIMEOUT_SECONDS
+        value: "60"
+      - key: PROVIDER_TIMEOUT_MS
+        value: "120000"
+      - key: AGENT_TIMEOUT_MS
+        value: "180000"
+      - key: CORS_ORIGINS
+        value: "*"

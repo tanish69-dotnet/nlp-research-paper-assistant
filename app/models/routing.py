@@ -14,6 +14,7 @@ from app.config import Settings
 from app.models.base import ModelProvider
 from app.models.mock import MockModelProvider
 from app.models.ollama import OllamaModelProvider
+from app.models.openai_compat import OpenAICompatProvider
 from app.schemas.health import ProviderHealth, RoleInfo
 
 logger = logging.getLogger(__name__)
@@ -66,10 +67,15 @@ def build_provider(settings: Settings) -> ModelProvider:
             default_timeout_s=settings.provider_timeout_ms / 1000.0,
         )
     if settings.model_provider == "openai_compat":
-        raise NotImplementedError(
-            "OPENAI_COMPAT provider is a planned extension point "
-            "(ARCHITECTURE §5) and is not implemented yet; "
-            "set MODEL_PROVIDER=ollama or mock."
+        if not settings.openai_compat_base_url:
+            raise ValueError(
+                "OPENAI_COMPAT_BASE_URL must be set when MODEL_PROVIDER=openai_compat"
+            )
+        api_key = settings.openai_compat_api_key.get_secret_value() if settings.openai_compat_api_key else None
+        return OpenAICompatProvider(
+            base_url=settings.openai_compat_base_url,
+            api_key=api_key,
+            default_timeout_s=settings.provider_timeout_ms / 1000.0,
         )
     raise ValueError(f"unsupported MODEL_PROVIDER: {settings.model_provider!r}")
 

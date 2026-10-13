@@ -45,9 +45,22 @@ def test_build_provider_selects_backend(make_settings: object) -> None:
     assert isinstance(ollama, OllamaModelProvider)
 
 
-def test_openai_compat_is_explicitly_not_implemented(make_settings: object) -> None:
-    with pytest.raises(NotImplementedError, match="not implemented"):
+def test_openai_compat_requires_base_url(make_settings: object) -> None:
+    with pytest.raises(ValueError, match="OPENAI_COMPAT_BASE_URL"):
         build_provider(make_settings(model_provider="openai_compat"))  # type: ignore[arg-type]
+
+
+def test_openai_compat_builds_with_base_url(make_settings: object) -> None:
+    from app.models.openai_compat import OpenAICompatProvider
+
+    provider = build_provider(
+        make_settings(  # type: ignore[arg-type]
+            model_provider="openai_compat",
+            openai_compat_base_url="https://gateway.example/v1",
+        )
+    )
+
+    assert isinstance(provider, OpenAICompatProvider)
 
 
 # --- registry availability ---------------------------------------------------

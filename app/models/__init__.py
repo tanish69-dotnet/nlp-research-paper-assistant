@@ -9,6 +9,7 @@ from app.models.base import (
 )
 from app.models.mock import MockModelProvider
 from app.models.ollama import OllamaModelProvider
+from app.models.openai_compat import OpenAICompatProvider
 from app.models.routing import (
     ROLE_MODEL_FIELDS,
     ModelRegistry,
@@ -30,6 +31,7 @@ __all__ = [
     "ModelRegistry",
     "ModelRole",
     "OllamaModelProvider",
+    "OpenAICompatProvider",
     "build_provider",
     "build_registry",
     "resolve_model",
