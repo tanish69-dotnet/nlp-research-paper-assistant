@@ -10,7 +10,7 @@ Output MUST be a single JSON object with exactly this shape (no markdown, no ext
   "findings": [
     {
       "claim_id": "cl1",
-      "kind": "figure_observation | author_claim | inference | limitation",
+      "kind": "<exactly one of: figure_observation, author_claim, inference, limitation>",
       "text": "<one atomic statement>",
       "evidence_ids": ["<ids of the supplied figure/caption/text evidence supporting it>"],
       "confidence": <0.0-1.0>

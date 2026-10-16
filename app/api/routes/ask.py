@@ -164,7 +164,7 @@ async def ask(
         else:
             confidence = raw
 
-    status: ResponseStatus = "partial" if result.unverified or any(
+    status: ResponseStatus = "partial" if result.unverified or result.verification_result.status != "supported" or any(
         getattr(run, "status", "") in {"error", "no_evidence", "partial"} for run in result.agent_runs
     ) else "ok"
     total_ms = int((time.perf_counter() - started) * 1000)

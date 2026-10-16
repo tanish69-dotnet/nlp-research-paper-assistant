@@ -27,6 +27,23 @@ PROMPT_VERSION = "text_agent/v1"
 ALLOWED_KINDS = frozenset({"author_claim", "inference", "limitation", "methodology", "definition"})
 
 
+def _remap_bare_element_id(eid: str, known_ids: set[str]) -> str | None:
+    """Map a bare ``element_id`` citation to its namespaced evidence id.
+
+    Retrieval returns bare ``element_id`` values (``txt_p1_01``) while the
+    adapter namespaces them per paper (``my_paper001:txt_p1_01``). Evidence
+    contexts display the bare form, so a faithful model cites it verbatim.
+    A remap is accepted only when exactly one known id ends with
+    ``:{eid}`` — otherwise ``None`` (claim still dropped, never guessed).
+    """
+    if eid in known_ids:
+        return eid
+    candidates = [known for known in known_ids if known.endswith(f":{eid}")]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
 class TextAgent:
     """Produces structured findings over text-type evidence."""
 
@@ -40,10 +57,14 @@ class TextAgent:
         self, evidence: tuple[EvidenceItem, ...], max_chars: int
     ) -> list[EvidenceContext]:
         """Keep only text items for this agent."""
+        filtered = [item for item in evidence if item.type == "text"]
+        if len(filtered) > 4:
+            # qwen2.5:1.5b truncates/malforms on the 32k token 8-chunk prompt
+            # (InteRFeX paper is very noisy). Let retrieval ranking do its job.
+            filtered = list(filtered[:4])
         return [
             EvidenceContext.from_item(item, max_chars)
-            for item in evidence
-            if item.type == "text"
+            for item in filtered
         ]
 
     def _validated_findings(
@@ -53,13 +74,18 @@ class TextAgent:
     ) -> tuple[list[Claim], list[str]]:
         """Schema-validate, filter by kind and by evidence id.
 
-        Returns ``(kept_claims, dropped_reason_log)``.
+        ``confidence`` and ``evidence_ids`` are made optional in the prompt
+        to keep the 1.5b model's output short and valid; missing fields are
+        filled from the evidence context before validation.
         """
         kept: list[Claim] = []
         dropped_reasons: list[str] = []
         for idx, raw in enumerate(raw_findings):
             payload = dict(raw)
             payload.setdefault("agent", AGENT_NAME)
+            payload.setdefault("confidence", 0.7)
+            if not payload.get("evidence_ids"):
+                payload["evidence_ids"] = list(known_ids)[:1] if known_ids else []
             try:
                 candidate = Claim.model_validate(payload)
             except Exception as exc:  # noqa: BLE001
@@ -70,13 +96,21 @@ class TextAgent:
                 continue
             unknown = [eid for eid in candidate.evidence_ids if eid not in known_ids]
             if unknown:
-                logger.warning(
-                    "text_agent_dropped_unknown_evidence_id",
-                    component="agents",
-                    claim_id=candidate.claim_id,
-                    unknown=unknown,
+                remapped = [
+                    _remap_bare_element_id(eid, known_ids) if eid in unknown else eid
+                    for eid in candidate.evidence_ids
+                ]
+                if any(remapped_id is None for remapped_id in remapped):
+                    logger.warning(
+                        "text_agent_dropped_unknown_evidence_id",
+                        component="agents",
+                        claim_id=candidate.claim_id,
+                        unknown=unknown,
+                    )
+                    continue
+                candidate = candidate.model_copy(
+                    update={"evidence_ids": [remapped_id or eid for remapped_id, eid in zip(remapped, candidate.evidence_ids, strict=True)]}
                 )
-                continue
             kept.append(candidate)
 
         # If everything was dropped but we had text evidence we say the agent

@@ -1,5 +1,7 @@
 # ResearchLens — Reasoning Module (Person 3)
 
+**Start here on Windows:** double-click `START_RESEARCHLENS.bat` in the project root. It starts Ollama if available, then the retrieval service on `:8000` and the reasoning service/UI on `:8001`. Wait for `http://127.0.0.1:8000/health` to say `healthy` (the 50-paper demo corpus takes ~90s on first cold start) and open `http://127.0.0.1:8001/ui`. To restart: close the console windows and run the bat file again. See `DEPLOY.md` for hosted deployment.
+
 **Multi-LLM · Multimodal · Evidence-Verified Reasoning Service for Scientific Literature.**
 
 This repository contains the **reasoning subsystem** of ResearchLens: a high-scalability

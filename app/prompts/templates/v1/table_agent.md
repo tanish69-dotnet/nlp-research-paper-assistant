@@ -14,7 +14,7 @@ Output MUST be a single JSON object with exactly this shape (no markdown, no ext
   "findings": [
     {
       "claim_id": "cl1",
-      "kind": "table_observation | table_comparison | table_interpretation | author_claim | limitation",
+      "kind": "<exactly one of: table_observation, table_comparison, table_interpretation, author_claim, limitation>",
       "text": "<one atomic statement>",
       "evidence_ids": ["<ids of the supplied table/text evidence supporting it>"],
       "confidence": <0.0-1.0>

@@ -12,7 +12,7 @@ Output MUST be a single JSON object with exactly this shape (no markdown, no ext
   "verdicts": [
     {
       "claim_id": "<id>",
-      "verdict": "SUPPORTED | PARTIALLY_SUPPORTED | UNSUPPORTED | CONTRADICTED",
+      "verdict": "<exactly one of: SUPPORTED, PARTIALLY_SUPPORTED, UNSUPPORTED, CONTRADICTED>",
       "rationale": "<short explanation>",
       "evidence_ids_support": ["<ids that support the claim, from supplied evidence only>"],
       "evidence_ids_contradict": ["<ids that contradict the claim>"],

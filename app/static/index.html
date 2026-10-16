@@ -5,101 +5,677 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ResearchLens — Research Paper Assistant</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 900px; margin: 0 auto; padding: 1.5rem; line-height: 1.5; }
-  h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
-  h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #8884; padding-bottom: 0.25rem; }
-  .sub { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
-  label { display: block; margin: 0.6rem 0 0.2rem; font-weight: 600; font-size: 0.9rem; }
-  input[type=text], input[type=number], textarea { width: 100%; box-sizing: border-box; padding: 0.5rem; font: inherit; }
-  textarea { min-height: 4rem; resize: vertical; }
-  button { margin-top: 0.6rem; padding: 0.5rem 1.2rem; font: inherit; cursor: pointer; }
-  button:disabled { cursor: wait; opacity: 0.6; }
-  .row { display: flex; gap: 1rem; } .row > div { flex: 1; }
-  .card { border: 1px solid #8885; border-radius: 8px; padding: 1rem; margin-top: 0.8rem; }
-  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
-  .ok { background: #d4edda; color: #155724; } .warn { background: #fff3cd; color: #856404; }
-  .err { background: #f8d7da; color: #721c24; } .info { background: #d1ecf1; color: #0c5460; }
-  .answer { white-space: pre-wrap; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-top: 0.5rem; }
-  th, td { border: 1px solid #8884; padding: 0.3rem 0.5rem; text-align: left; }
-  .muted { color: #666; font-size: 0.82rem; }
-  .hidden { display: none; }
-  progress { width: 100%; }
-  details { margin-top: 0.5rem; } summary { cursor: pointer; font-weight: 600; }
-  #status-line { margin-top: 0.5rem; font-size: 0.85rem; }
+  /* ------------------------------------------------------------------ *
+   * ResearchLens — warm editorial design system
+   * ------------------------------------------------------------------ */
+  :root {
+    color-scheme: light;
+    --bg: #F8F6F1;
+    --card: #FFFEFC;
+    --forest: #24483D;
+    --forest-dark: #1B382F;
+    --forest-soft: #EAF0EA;
+    --sage: #A9BDA8;
+    --lavender: #DCD5F2;
+    --lavender-soft: #F1EEFB;
+    --peach: #F2D5C6;
+    --ink: #282B29;
+    --muted: #747B74;
+    --border: #E8E4DC;
+    --ok: #1F5136;
+    --ok-bg: #E4F0E6;
+    --warn: #7A5213;
+    --warn-bg: #FBEFD8;
+    --err: #7C2E2E;
+    --err-bg: #F8E3E1;
+    --neutral: #4A4A57;
+    --neutral-bg: #ECEAF4;
+    --radius: 22px;
+    --radius-sm: 14px;
+    --radius-xs: 10px;
+    --shadow-sm: 0 1px 2px rgba(40, 43, 41, .04), 0 2px 8px rgba(40, 43, 41, .04);
+    --shadow-md: 0 6px 20px rgba(40, 43, 41, .07);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * , *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .serif { font-family: var(--serif); font-weight: 600; letter-spacing: .005em; }
+  h1 { font-size: clamp(1.8rem, 1.2rem + 2.2vw, 2.6rem); line-height: 1.15; margin: 0 0 .5rem; }
+  h2 { font-size: clamp(1.3rem, 1.1rem + .7vw, 1.6rem); margin: 0; }
+  h3 { font-size: 1.05rem; margin: 0 0 .35rem; }
+  h4 { font-size: .82rem; margin: .9rem 0 .35rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-family: var(--sans); font-weight: 700; }
+  p { margin: 0 0 .6rem; }
+  a { color: var(--forest); }
+  :focus-visible { outline: 3px solid rgba(36, 72, 61, .32); outline-offset: 2px; border-radius: 10px; }
+
+  /* ---------- shell ---------- */
+  .app { display: grid; grid-template-columns: 258px minmax(0, 1fr); align-items: start; }
+  .sidebar {
+    position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column;
+    gap: 1.1rem; padding: 1.4rem 1.1rem; border-right: 1px solid var(--border);
+    background: linear-gradient(180deg, #FCFBF7 0%, #F8F6F1 100%);
+  }
+  .brand { display: flex; align-items: center; gap: .6rem; }
+  .brand-mark {
+    width: 38px; height: 38px; border-radius: 12px; background: var(--forest);
+    display: grid; place-items: center; flex: 0 0 auto; box-shadow: var(--shadow-sm);
+  }
+  .brand-name { font-family: var(--serif); font-size: 1.16rem; line-height: 1.1; }
+  .brand-sub { font-size: .72rem; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .nav { display: flex; flex-direction: column; gap: .18rem; margin-top: .3rem; }
+  .nav-link {
+    display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; border-radius: var(--radius-xs);
+    color: var(--ink); text-decoration: none; font-size: .92rem; border: 1px solid transparent;
+    transition: background .18s ease, color .18s ease, transform .18s ease;
+  }
+  .nav-link:hover { background: #fff; border-color: var(--border); transform: translateX(2px); }
+  .nav-link.is-active { background: var(--forest-soft); border-color: #D8E4D9; color: var(--forest-dark); font-weight: 600; }
+  .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); flex: 0 0 auto; }
+  .nav-link.is-active .nav-dot { background: var(--forest); }
+  .sidebar-foot { margin-top: auto; font-size: .78rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: .8rem; }
+
+  .main { min-width: 0; }
+  .topbar {
+    position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 1rem;
+    padding: .8rem 1.6rem; background: rgba(248, 246, 241, .88); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-title { font-family: var(--serif); font-size: 1rem; }
+  .topbar-spacer { flex: 1 1 auto; }
+  .content { padding: 1.6rem clamp(1rem, 2.4vw, 2.6rem) 5rem; max-width: 1500px; }
+
+  /* ---------- service pill ---------- */
+  .service-pill {
+    display: inline-flex; align-items: center; gap: .45rem; padding: .32rem .75rem; border-radius: 999px;
+    background: #fff; border: 1px solid var(--border); font-size: .8rem; color: var(--muted);
+    box-shadow: var(--shadow-sm); white-space: nowrap;
+  }
+  .service-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); }
+  .service-pill.is-ok .dot { background: #3F7D57; }
+  .service-pill.is-bad .dot { background: #B5564E; }
+  .service-pill.is-checking .dot { background: #C9A227; animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* ---------- cards & sections ---------- */
+  .section { margin-bottom: 2.4rem; scroll-margin-top: 5rem; }
+  .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: .9rem; flex-wrap: wrap; }
+  .section-kicker { font-size: .74rem; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+  .section-sub { color: var(--muted); font-size: .92rem; max-width: 68ch; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.15rem 1.25rem; box-shadow: var(--shadow-sm);
+  }
+  .card + .card { margin-top: .9rem; }
+  .card-flat { box-shadow: none; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; align-items: start; }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative; overflow: hidden; border-radius: var(--radius);
+    background: linear-gradient(125deg, #FFFEFC 0%, #F4F1E9 52%, #EFEAF5 100%);
+    border: 1px solid var(--border); padding: clamp(1.4rem, 3vw, 2.4rem); box-shadow: var(--shadow-sm);
+  }
+  .hero::after {
+    content: ""; position: absolute; right: -70px; top: -80px; width: 290px; height: 290px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, rgba(242, 213, 198, .85), rgba(220, 213, 242, .55) 60%, transparent 72%);
+    pointer-events: none;
+  }
+  .hero-inner { position: relative; max-width: 62ch; }
+  .eyebrow { display: inline-flex; align-items: center; gap: .4rem; font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; color: var(--forest); background: var(--forest-soft); border-radius: 999px; padding: .26rem .7rem; margin-bottom: .8rem; }
+  .hero-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .7rem; margin-top: 1.2rem; }
+  .step { background: rgba(255, 255, 255, .72); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .7rem .85rem; }
+  .step b { display: block; font-family: var(--serif); font-size: .95rem; margin-bottom: .1rem; }
+  .step span { color: var(--muted); font-size: .85rem; }
+  .step-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--forest); color: #fff; font-size: .72rem; font-weight: 700; margin-right: .4rem; }
+
+  /* ---------- forms ---------- */
+  label { display: block; margin: .7rem 0 .22rem; font-weight: 600; font-size: .84rem; }
+  .field-hint { font-weight: 400; color: var(--muted); }
+  input[type=text], input[type=number], input[type=search], textarea {
+    width: 100%; padding: .62rem .78rem; font: inherit; color: var(--ink); background: #fff;
+    border: 1px solid var(--border); border-radius: var(--radius-xs); transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  input[type=text]:focus, input[type=number]:focus, input[type=search]:focus, textarea:focus {
+    border-color: var(--sage); box-shadow: 0 0 0 4px rgba(169, 189, 168, .22); outline: none;
+  }
+  textarea { min-height: 104px; resize: vertical; line-height: 1.5; }
+  .row { display: flex; gap: .9rem; flex-wrap: wrap; }
+  .row > * { flex: 1 1 220px; min-width: 0; }
+  .options-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: .8rem; align-items: end; }
+
+  button { font: inherit; cursor: pointer; border-radius: 999px; transition: background .18s ease, border-color .18s ease, transform .12s ease, opacity .18s ease; }
+  button:disabled { cursor: progress; opacity: .6; }
+  .btn { padding: .58rem 1.15rem; border: 1px solid transparent; font-weight: 600; font-size: .9rem; }
+  .btn-primary { background: var(--forest); color: #fff; border-color: var(--forest); box-shadow: var(--shadow-sm); }
+  .btn-primary:hover:not(:disabled) { background: var(--forest-dark); }
+  .btn-ghost { background: #fff; border-color: var(--border); color: var(--ink); }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--sage); background: #FDFCF9; }
+  .btn-quiet { background: transparent; border-color: transparent; color: var(--muted); padding: .38rem .6rem; font-size: .82rem; }
+  .btn-quiet:hover:not(:disabled) { background: #fff; border-color: var(--border); color: var(--ink); }
+  .btn-small { padding: .38rem .8rem; font-size: .82rem; }
+  .btn-row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-top: .9rem; }
+
+  /* ---------- drop zone ---------- */
+  .drop-zone {
+    border: 1.5px dashed #D9D3C6; border-radius: var(--radius-sm); background: #FFFDF9;
+    padding: 1.1rem; text-align: center; transition: border-color .18s ease, background .18s ease;
+  }
+  .drop-zone.dragging { border-color: var(--forest); background: var(--forest-soft); }
+  .drop-zone input[type=file] { width: 100%; margin-bottom: .5rem; font-size: .86rem; }
+  .drop-title { font-family: var(--serif); font-size: 1rem; margin: 0; }
+  .file-name { font-size: .84rem; }
+  .file-name.has-file { color: var(--forest); font-weight: 600; }
+
+  progress { width: 100%; height: 8px; margin-top: .7rem; border: none; border-radius: 999px; overflow: hidden; }
+  progress::-webkit-progress-bar { background: #EFEBE2; border-radius: 999px; }
+  progress::-webkit-progress-value { background: var(--forest); border-radius: 999px; }
+  progress::-moz-progress-bar { background: var(--forest); border-radius: 999px; }
+
+  /* ---------- badges & pills ---------- */
+  .badge {
+    display: inline-block; padding: .2rem .68rem; border-radius: 999px; font-size: .76rem; font-weight: 700;
+    letter-spacing: .01em; background: var(--neutral-bg); color: var(--neutral); margin: 0 .35rem .35rem 0;
+  }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn); }
+  .badge.err { background: var(--err-bg); color: var(--err); }
+  .badge.neutral { background: var(--neutral-bg); color: var(--neutral); }
+  .pill { display: inline-block; padding: .18rem .6rem; border-radius: 999px; font-size: .74rem; background: var(--lavender-soft); color: #4C4467; border: 1px solid #E4DFF6; margin: 0 .3rem .3rem 0; }
+  .pill.peach { background: #FCEFE8; color: #7A4A33; border-color: #F5DCCE; }
+  .pill.sage { background: var(--forest-soft); color: var(--forest-dark); border-color: #D8E4D9; }
+
+  /* ---------- history / answer cards ---------- */
+  .history-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 1.4rem 0 .6rem; flex-wrap: wrap; }
+  .history-entry { scroll-margin-top: 5.5rem; }
+  .history-entry.latest { border-color: #CBD9CC; box-shadow: var(--shadow-md); }
+  .question-heading { margin: .1rem 0 .25rem; }
+  .question { white-space: pre-wrap; font-weight: 600; font-size: 1rem; margin: 0 0 .3rem; }
+  .answer { white-space: pre-wrap; margin: .2rem 0 .4rem; }
+  .error-detail { white-space: pre-wrap; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .card-error { border-left: 4px solid #D9A6A0; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; margin-top: .4rem; }
+  th, td { border-bottom: 1px solid var(--border); padding: .36rem .5rem; text-align: left; vertical-align: top; }
+  th { font-weight: 700; color: var(--muted); font-size: .76rem; letter-spacing: .05em; text-transform: uppercase; }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-xs); }
+  .table-scroll table { margin: 0; }
+  .table-scroll th, .table-scroll td { white-space: nowrap; }
+
+  details { margin-top: .5rem; border-top: 1px dashed var(--border); padding-top: .4rem; }
+  details > summary { cursor: pointer; font-weight: 600; font-size: .86rem; color: var(--forest); }
+  details[open] > summary { margin-bottom: .4rem; }
+
+  /* ---------- masonry ---------- */
+  .masonry { column-count: 3; column-gap: 1rem; }
+  .masonry > * { break-inside: avoid; display: block; margin-bottom: 1rem; }
+  @media (max-width: 1280px) { .masonry { column-count: 2; } }
+  @media (max-width: 720px) { .masonry { column-count: 1; } }
+
+  .paper-card, .media-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: .95rem 1rem; box-shadow: var(--shadow-sm); transition: box-shadow .2s ease, transform .2s ease; }
+  .paper-card:hover, .media-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+  .paper-title { font-family: var(--serif); font-size: 1.02rem; margin: 0 0 .25rem; }
+  .paper-meta { color: var(--muted); font-size: .8rem; margin-bottom: .35rem; }
+  .paper-abstract { font-size: .87rem; color: #4C514C; }
+  .media-figure { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); background: #fff; }
+  .media-caption { font-size: .86rem; margin-top: .5rem; color: #43483F; }
+  .media-stats { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
+
+  .empty-state { border: 1.5px dashed var(--border); border-radius: var(--radius); padding: 1.4rem; text-align: center; color: var(--muted); background: #FFFDFA; }
+  .empty-state b { display: block; font-family: var(--serif); color: var(--ink); font-size: 1.02rem; margin-bottom: .15rem; }
+
+  .hidden { display: none !important; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+  .spinner { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(36, 72, 61, .25); border-top-color: var(--forest); animation: spin .7s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #ask-status { min-height: 1.3rem; margin-top: .7rem; display: flex; align-items: center; gap: .5rem; }
+  #status-line { margin-top: .7rem; font-size: .85rem; color: var(--muted); }
+  #evidence-status, #arxiv-status { min-height: 1.2rem; margin-top: .6rem; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar {
+      position: sticky; top: 0; height: auto; z-index: 30; border-right: none;
+      border-bottom: 1px solid var(--border); padding: .7rem .8rem; flex-direction: column; gap: .6rem;
+    }
+    .nav { flex-direction: row; overflow-x: auto; gap: .35rem; padding-bottom: .15rem; }
+    .nav-link { white-space: nowrap; padding: .45rem .65rem; font-size: .86rem; }
+    .sidebar-foot { display: none; }
+    .topbar { position: static; padding: .7rem 1rem; }
+    .content { padding: 1.1rem .9rem 4rem; }
+    .options-row { grid-template-columns: 1fr; }
+    .brand-sub { display: none; }
+  }
 </style>
 </head>
 <body>
-<h1>ResearchLens — Research Paper Assistant</h1>
-<div class="sub">Local demo UI. Upload a PDF, then ask questions grounded in its text, tables, and figures.</div>
+<a class="sr-only" href="#section-ask">Skip to the question form</a>
 
-<h2>1. Services</h2>
-<div class="row">
-  <div><label for="p2base">Retrieval service (Person 2)</label><input id="p2base" type="text" value="http://127.0.0.1:8000"></div>
-  <div><label for="nlpbase">Reasoning service (this API)</label><input id="nlpbase" type="text" value=""></div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F8F6F1" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5"></circle>
+          <path d="M15.4 15.4 21 21"></path>
+          <path d="M7.6 8.4h5.8M7.6 11.2h3.6"></path>
+        </svg>
+      </span>
+      <span>
+        <span class="brand-name">ResearchLens</span><br>
+        <span class="brand-sub">Evidence workspace</span>
+      </span>
+    </div>
+
+    <nav class="nav" aria-label="Workspace sections">
+      <a class="nav-link is-active" href="#section-home" data-nav><span class="nav-dot"></span>Workspace</a>
+      <a class="nav-link" href="#section-papers" data-nav><span class="nav-dot"></span>My Papers</a>
+      <a class="nav-link" href="#section-ask" data-nav><span class="nav-dot"></span>Ask ResearchLens</a>
+      <a class="nav-link" href="#section-evidence" data-nav><span class="nav-dot"></span>Figures &amp; Tables</a>
+      <a class="nav-link" href="#history-header" data-nav><span class="nav-dot"></span>Question History</a>
+    </nav>
+
+    <div class="sidebar-foot">
+      Answers stay in this page as you continue. Local PDF indexing lives in the
+      retrieval service; on free hosted tiers uploads and indexes are not persistent.
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <span class="topbar-title">Workspace</span>
+      <span class="topbar-spacer"></span>
+      <span class="service-pill" id="service-pill" role="status" aria-live="polite"><span class="dot"></span>Checking services…</span>
+    </header>
+
+    <div class="content">
+      <!-- ============ HOME / WORKSPACE ============ -->
+      <section class="section" id="section-home" aria-labelledby="home-title">
+        <div class="hero">
+          <div class="hero-inner">
+            <span class="eyebrow">Multimodal research assistant</span>
+            <h1 id="home-title">Your research, understood.</h1>
+            <p class="section-sub">
+              ResearchLens reads scientific papers as evidence: text, figures and tables are
+              retrieved, reasoned over, then verified claim by claim. Every answer carries the
+              citations it actually earned — or an honest abstention.
+            </p>
+            <div class="hero-actions">
+              <button class="btn btn-primary" type="button" id="hero-ask-btn">Ask a question</button>
+              <button class="btn btn-ghost" type="button" id="hero-upload-btn">Upload a paper</button>
+            </div>
+            <div class="steps">
+              <div class="step"><b><span class="step-n">1</span>Upload a paper</b><span>PDF text, tables and figure images are extracted and indexed.</span></div>
+              <div class="step"><b><span class="step-n">2</span>Explore evidence</b><span>Figures and tables stay linked to pages and evidence IDs.</span></div>
+              <div class="step"><b><span class="step-n">3</span>Ask questions</b><span>Answers are verified against evidence before they are shown.</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ ASK ============ -->
+      <section class="section" id="section-ask" aria-labelledby="ask-title">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Ask ResearchLens</div>
+            <h2 id="ask-title">Ask about this research</h2>
+            <p class="section-sub">Questions are answered from retrieved evidence only. If the evidence does not support an answer, ResearchLens says so instead of guessing.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <label for="query">Your question</label>
+          <textarea id="query" placeholder="Ask about a method, result, figure, or table…"></textarea>
+          <div class="options-row">
+            <div>
+              <label for="topk">Top K evidence</label>
+              <input id="topk" type="number" value="8" min="1" max="50">
+            </div>
+            <div>
+              <label for="scope">Paper IDs <span class="field-hint">— comma-separated; leave blank to search every indexed paper</span></label>
+              <input id="scope" type="text" placeholder="e.g. live_9n_001">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button id="ask-btn" class="btn btn-primary" type="button">Ask</button>
+            <button id="ask-fill-btn" class="btn btn-ghost btn-small" type="button">Use the Figure 1 example</button>
+            <span id="ask-spinner" class="spinner hidden" aria-hidden="true"></span>
+            <span class="muted">Set the paper ID to scope the answer to one paper.</span>
+          </div>
+          <div id="ask-status" class="muted" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="history-header" id="history-header">
+          <h3 class="serif">Question history</h3>
+          <span class="btn-row" style="margin:0">
+            <a id="latest-answer" class="btn btn-ghost btn-small hidden" href="#answer-result">Jump to newest result</a>
+            <button id="clear-history-btn" class="btn btn-quiet" type="button">Clear session history</button>
+          </span>
+        </div>
+        <div id="answer-result">
+          <p id="history-empty" class="empty-state">
+            <b>No questions asked yet</b>
+            Ask something above and the answer will stay here, with its verification status and citations, as you continue.
+          </p>
+        </div>
+      </section>
+
+      <!-- ============ MY PAPERS ============ -->
+      <section class="section" id="section-papers" aria-labelledby="papers-title">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">My Papers</div>
+            <h2 id="papers-title">Upload and index</h2>
+            <p class="section-sub">Uploaded PDFs are parsed by the retrieval service. Local indexing is stored by that service — on a free hosted tier the filesystem is ephemeral, so uploads and indexes may disappear after a restart.</p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Add a PDF</h3>
+            <div class="drop-zone" id="drop-zone">
+              <input id="pdf" type="file" accept="application/pdf,.pdf" aria-label="PDF file to upload and index">
+              <p class="drop-title">Drop a PDF here, or choose a file</p>
+              <p class="muted" style="margin:0">PDF only · maximum 32 MiB</p>
+              <p id="file-name" class="file-name muted">No file selected</p>
+            </div>
+            <details>
+              <summary>Optional metadata</summary>
+              <label for="paper-id">Paper ID <span class="field-hint">— derived from the title when left blank</span></label>
+              <input id="paper-id" type="text" placeholder="e.g. my_paper_001">
+              <label for="paper-title">Title</label>
+              <input id="paper-title" type="text" placeholder="e.g. Sparse Retrieval with Structured Context">
+            </details>
+            <div class="btn-row">
+              <button id="upload-btn" class="btn btn-primary" type="button">Upload and index</button>
+              <span id="upload-spinner" class="spinner hidden" aria-hidden="true"></span>
+            </div>
+            <progress id="upload-progress" class="hidden" max="100" value="0"></progress>
+            <div id="upload-result"></div>
+          </div>
+
+          <div class="card">
+            <h3>Discover on arXiv</h3>
+            <p class="muted">Search arXiv metadata and import a public paper straight into the indexing pipeline.</p>
+            <label for="arxiv-query">arXiv search</label>
+            <input id="arxiv-query" type="search" placeholder="e.g. multimodal retrieval with figures">
+            <div class="btn-row">
+              <button id="arxiv-btn" class="btn btn-ghost" type="button">Search arXiv</button>
+              <span id="arxiv-spinner" class="spinner hidden" aria-hidden="true"></span>
+            </div>
+            <div id="arxiv-status" class="muted" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div class="section-head" style="margin-top:1.4rem">
+          <div><h3 class="serif" style="margin:0">Indexed in this session</h3><p class="muted" style="margin:0">Papers you uploaded or imported in this browser session.</p></div>
+        </div>
+        <p id="paper-grid-empty" class="empty-state"><b>No papers indexed in this session yet</b>Use the upload card or arXiv search above. The retrieval service does not expose a general paper-list endpoint, so only papers indexed in this session appear here.</p>
+        <div id="paper-grid" class="masonry hidden"></div>
+
+        <div id="arxiv-results"></div>
+
+        <div class="card card-flat" style="margin-top:1.4rem">
+          <h3>Service endpoints</h3>
+          <p class="muted">The retrieval service indexes papers; the reasoning service runs the verified question pipeline. If asking returns 404, the reasoning URL is pointing at the wrong port (retrieval is <code>:8000</code>, reasoning is <code>:8001</code>).</p>
+          <div class="row">
+            <div>
+              <label for="p2base">Retrieval service</label>
+              <input id="p2base" type="text" value="http://127.0.0.1:8000">
+            </div>
+            <div>
+              <label for="nlpbase">Reasoning service <span class="field-hint">— leave blank to use this page's origin</span></label>
+              <input id="nlpbase" type="text" value="" placeholder="http://127.0.0.1:8001">
+            </div>
+          </div>
+          <div class="btn-row">
+            <button id="check-btn" class="btn btn-ghost" type="button">Check services</button>
+          </div>
+          <div id="status-line" role="status" aria-live="polite">Service status unknown — press Check services.</div>
+        </div>
+      </section>
+
+      <!-- ============ FIGURES & TABLES ============ -->
+      <section class="section" id="section-evidence" aria-labelledby="evidence-title">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Figures &amp; Tables</div>
+            <h2 id="evidence-title">Visual evidence</h2>
+            <p class="section-sub">Real extracted figures and tables from the retrieval corpus. Figure images are shown only when the retrieval service returns actual image bytes; structured tables are rendered only when real table data was extracted.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <label for="evidence-query">Find figures or tables about…</label>
+          <div class="row">
+            <div style="flex:3 1 320px">
+              <input id="evidence-query" type="search" placeholder="e.g. the InteRFeX array deployment, or accuracy comparison">
+            </div>
+            <div style="flex:0 0 auto; min-width:0">
+              <button id="evidence-btn" class="btn btn-primary" type="button">Find evidence</button>
+            </div>
+            <span id="evidence-spinner" class="spinner hidden" aria-hidden="true"></span>
+          </div>
+          <div id="evidence-status" class="muted" role="status" aria-live="polite"></div>
+          <div class="btn-row">
+            <button id="evidence-session-btn" class="btn btn-ghost btn-small" type="button">Show figures &amp; tables from my answers</button>
+          </div>
+        </div>
+
+        <p id="evidence-empty" class="empty-state" style="margin-top:.9rem"><b>Nothing shown yet</b>Search the retrieval corpus above, or answer a question and pull the figures and tables it cited.</p>
+        <div id="evidence-grid" class="masonry hidden"></div>
+      </section>
+
+      <footer class="muted" style="border-top:1px solid var(--border); padding-top:1rem">
+        ResearchLens · answers are verified against retrieved evidence. Unverified and unsupported
+        results are labelled as such and never presented as facts.
+      </footer>
+    </div>
+  </div>
 </div>
-<div id="status-line"><span class="muted">Service status unknown — press Check.</span></div>
-<button id="check-btn" type="button">Check services</button>
-
-<h2>2. Upload a paper (PDF)</h2>
-<label for="pdf">PDF file (max 32 MiB)</label>
-<input id="pdf" type="file" accept="application/pdf,.pdf">
-<label for="paper-id">Paper ID (optional — derived from title if empty)</label>
-<input id="paper-id" type="text" placeholder="e.g. my_paper_001">
-<label for="paper-title">Title (optional)</label>
-<input id="paper-title" type="text" placeholder="e.g. Sparse Retrieval with Structured Context">
-<button id="upload-btn" type="button">Upload and index</button>
-<progress id="upload-progress" class="hidden" max="100" value="0"></progress>
-<div id="upload-result"></div>
-
-<h2>3. Ask a question</h2>
-<label for="query">Question</label>
-<textarea id="query" placeholder="Which method performed best in Table 1?  /  Describe Figure 1."></textarea>
-<div class="row">
-  <div><label for="topk">Top K evidence</label><input id="topk" type="number" value="8" min="1" max="50"></div>
-  <div><label for="scope">Paper IDs, comma-separated (optional — blank searches all)</label><input id="scope" type="text" placeholder="e.g. live_9n_001"></div>
-</div>
-<button id="ask-btn" type="button">Ask</button>
-<div id="answer-result"></div>
 
 <script>
 "use strict";
+/* ------------------------------------------------------------------ *
+ * Utilities — every piece of model/API text is written with
+ * textContent. innerHTML is never used for untrusted content.
+ * ------------------------------------------------------------------ */
 const $ = (id) => document.getElementById(id);
 const nlpBase = () => $("nlpbase").value.trim() || window.location.origin;
-const esc = (s) => String(s == null ? "" : s);
-
-function setHtml(el, text) { el.textContent = text; }  // never innerHTML with model output
-
+const retrievalBase = () => $("p2base").value.trim().replace(/\/+$/, "");
+const setHtml = (el, text) => { if (el) el.textContent = text == null ? "" : String(text); };
+const displayValue = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try { return JSON.stringify(value); } catch (e) { return String(value); }
+};
+function make(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = String(text);
+  return node;
+}
 function badge(text, cls) {
-  const s = document.createElement("span");
-  s.className = "badge " + cls;
-  s.textContent = text;
-  return s;
+  return make("span", "badge " + (cls || "neutral"), text);
+}
+function pill(text, cls) {
+  return make("span", "pill " + (cls || ""), text);
+}
+function heading(text) {
+  return make("h4", null, text);
+}
+function show(el, visible) {
+  if (!el) return;
+  el.classList.toggle("hidden", !visible);
+}
+function spinnerFor(id, active) {
+  const node = $(id);
+  if (node) node.classList.toggle("hidden", !active);
+}
+
+/* ------------------------------------------------------------------ *
+ * Navigation — in-page sections with real scroll targets.
+ * ------------------------------------------------------------------ */
+const navLinks = Array.prototype.slice.call(document.querySelectorAll("[data-nav]"));
+navLinks.forEach((link) => {
+  link.addEventListener("click", () => {
+    navLinks.forEach((other) => other.classList.toggle("is-active", other === link));
+  });
+});
+function goToSection(id) {
+  const target = $(id);
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("hero-ask-btn").addEventListener("click", () => { $("query").focus(); goToSection("section-ask"); });
+$("hero-upload-btn").addEventListener("click", () => goToSection("section-papers"));
+
+/* ------------------------------------------------------------------ *
+ * Service health — always the real result of an actual request.
+ * ------------------------------------------------------------------ */
+function setServicePill(state, text) {
+  const node = $("service-pill");
+  node.classList.remove("is-ok", "is-bad", "is-checking");
+  node.classList.add(state);
+  setHtml(node, "");
+  node.appendChild(make("span", "dot"));
+  node.appendChild(document.createTextNode(text));
 }
 
 async function checkServices() {
   const line = $("status-line");
-  line.textContent = "Checking…";
+  setHtml(line, "Checking…");
+  setServicePill("is-checking", "Checking services…");
   const out = [];
+  let okCount = 0;
+  const p2url = retrievalBase();
+  let nlpUrl;
+  try { nlpUrl = nlpBase().replace(/\/+$/, ""); } catch (e) { nlpUrl = ""; }
+
+  if (p2url.match(/:8001$/) && nlpUrl.match(/:8000$/)) {
+    out.push("⚠ the inputs look swapped: retrieval should be :8000 and reasoning :8001");
+  }
   try {
-    const r = await fetch($("p2base").value.replace(/\/$/, "") + "/health");
+    const r = await fetch(p2url + "/health");
     out.push("retrieval /health: " + r.status + (r.ok ? " OK" : " FAIL"));
+    if (r.ok) okCount += 1;
   } catch (e) { out.push("retrieval /health: UNREACHABLE (" + e + ")"); }
   try {
-    const r = await fetch(nlpBase() + "/api/v1/health");
-    const j = await r.json();
-    out.push("reasoning /health: " + r.status + " " + (j.status || ""));
+    const r = await fetch(nlpUrl + "/api/v1/health");
+    let detail = "";
+    try { const j = await r.json(); detail = j.status || ""; } catch (e) { detail = ""; }
+    out.push("reasoning /health: " + r.status + " " + detail);
+    if (r.ok) okCount += 1;
   } catch (e) { out.push("reasoning /health: UNREACHABLE (" + e + ")"); }
-  line.textContent = out.join("  ·  ");
+
+  setHtml(line, out.join("  ·  "));
+  if (okCount === 2) setServicePill("is-ok", "Both services reachable");
+  else if (okCount === 1) setServicePill("is-bad", "One service unreachable");
+  else setServicePill("is-bad", "Services unreachable");
+}
+
+/* ------------------------------------------------------------------ *
+ * Session paper registry (only papers actually indexed in this tab).
+ * ------------------------------------------------------------------ */
+const sessionPapers = [];
+
+function paperCard(paper) {
+  const card = make("article", "paper-card");
+  card.appendChild(make("p", "paper-title", paper.title || paper.paper_id));
+  const meta = [];
+  if (paper.paper_id) meta.push(paper.paper_id);
+  if (paper.authors && paper.authors.length) meta.push(paper.authors.slice(0, 3).join(", "));
+  if (paper.source_url) meta.push(paper.source_url);
+  if (meta.length) card.appendChild(make("p", "paper-meta", meta.join(" · ")));
+  if (paper.abstract) card.appendChild(make("p", "paper-abstract", paper.abstract.slice(0, 320)));
+  const stats = make("div", "media-stats");
+  if (paper.elements != null) {
+    stats.appendChild(pill("elements " + paper.elements, "sage"));
+    stats.appendChild(pill("tables " + (paper.table_elements || 0)));
+    stats.appendChild(pill("figures " + (paper.figure_elements || 0), "peach"));
+    if (paper.chunks_created != null) stats.appendChild(pill("chunks " + paper.chunks_created));
+  }
+  if (stats.childNodes.length) card.appendChild(stats);
+  if (paper.paper_id) {
+    const row = make("div", "btn-row");
+    const scopeBtn = make("button", "btn btn-ghost btn-small", "Ask about this paper");
+    scopeBtn.type = "button";
+    scopeBtn.addEventListener("click", () => {
+      $("scope").value = paper.paper_id;
+      $("query").focus();
+      goToSection("section-ask");
+      showAskStatus("Scoped to " + paper.paper_id + ". Type your question and press Ask.");
+    });
+    row.appendChild(scopeBtn);
+    card.appendChild(row);
+  }
+  return card;
+}
+
+function registerPaper(paper) {
+  if (!paper || !paper.paper_id) return;
+  const existing = sessionPapers.findIndex((item) => item.paper_id === paper.paper_id);
+  if (existing >= 0) sessionPapers[existing] = paper; else sessionPapers.push(paper);
+  renderSessionPapers();
+}
+
+function renderSessionPapers() {
+  const grid = $("paper-grid");
+  grid.replaceChildren();
+  sessionPapers.forEach((paper) => grid.appendChild(paperCard(paper)));
+  const any = sessionPapers.length > 0;
+  show(grid, any);
+  show($("paper-grid-empty"), !any);
+}
+
+/* ------------------------------------------------------------------ *
+ * Upload
+ * ------------------------------------------------------------------ */
+const dropZone = $("drop-zone");
+["dragenter", "dragover"].forEach((evt) => dropZone.addEventListener(evt, (evt2) => { evt2.preventDefault(); dropZone.classList.add("dragging"); }));
+["dragleave", "drop"].forEach((evt) => dropZone.addEventListener(evt, (evt2) => { evt2.preventDefault(); dropZone.classList.remove("dragging"); }));
+dropZone.addEventListener("drop", (evt) => {
+  const files = evt.dataTransfer && evt.dataTransfer.files;
+  if (!files || !files.length) return;
+  try { $("pdf").files = files; } catch (e) { return; }
+  showFileName();
+});
+$("pdf").addEventListener("change", showFileName);
+
+function showFileName() {
+  const node = $("file-name");
+  const file = $("pdf").files[0];
+  if (!file) { setHtml(node, "No file selected"); node.classList.remove("has-file"); return; }
+  setHtml(node, "Selected: " + file.name + " (" + (file.size / (1024 * 1024)).toFixed(1) + " MiB)");
+  node.classList.add("has-file");
 }
 
 async function uploadPdf() {
-  const box = $("upload-result"); box.innerHTML = "";
+  const box = $("upload-result");
+  box.replaceChildren();
   const file = $("pdf").files[0];
   if (!file) { box.appendChild(badge("No file selected", "err")); return; }
-  const btn = $("upload-btn"); btn.disabled = true;
-  const prog = $("upload-progress"); prog.classList.remove("hidden"); prog.value = 0;
+  const btn = $("upload-btn");
+  btn.disabled = true;
+  spinnerFor("upload-spinner", true);
+  const prog = $("upload-progress");
+  prog.classList.remove("hidden");
+  prog.value = 0;
   try {
     const form = new FormData();
     form.append("file", file);
@@ -107,123 +683,576 @@ async function uploadPdf() {
     if ($("paper-title").value.trim()) form.append("title", $("paper-title").value.trim());
     const xhr = new XMLHttpRequest();
     const done = await new Promise((resolve, reject) => {
-      xhr.upload.onprogress = (e) => { if (e.lengthComputable) prog.value = Math.round(100 * e.loaded / e.total); };
+      xhr.upload.onprogress = (evt) => { if (evt.lengthComputable) prog.value = Math.round(100 * evt.loaded / evt.total); };
       xhr.onload = () => resolve(xhr);
       xhr.onerror = () => reject(new Error("upload failed (network)"));
-      xhr.open("POST", $("p2base").value.replace(/\/$/, "") + "/ingest-pdf");
+      xhr.open("POST", retrievalBase() + "/ingest-pdf");
       xhr.send(form);
     });
     prog.value = 100;
     let body = {};
     try { body = JSON.parse(done.responseText); } catch (e) { body = { detail: done.responseText.slice(0, 500) }; }
-    const card = document.createElement("div"); card.className = "card";
+    const card = make("div", "card card-flat");
     if (done.status >= 200 && done.status < 300) {
       card.appendChild(badge("Indexed", "ok"));
-      const p = document.createElement("p");
-      setHtml(p, "paper_id=" + body.paper_id + "  elements=" + body.elements +
-        " (text=" + body.text_elements + " table=" + body.table_elements +
-        " figure=" + body.figure_elements + " with_bytes=" + body.figures_with_bytes + ")" +
-        "  chunks=" + body.chunks_created);
-      card.appendChild(p);
-      if ((body.warnings || []).length) {
-        const w = document.createElement("p"); w.className = "muted";
-        setHtml(w, "warnings: " + body.warnings.join("; "));
-        card.appendChild(w);
-      }
-      const hint = document.createElement("p"); hint.className = "muted";
-      setHtml(hint, "Tip: paste this paper_id into the Paper IDs box below to scope questions to it.");
-      card.appendChild(hint);
+      card.appendChild(make("p", null, "paper_id=" + body.paper_id + "  ·  elements=" + body.elements +
+        " (text=" + body.text_elements + ", table=" + body.table_elements +
+        ", figure=" + body.figure_elements + " with_bytes=" + body.figures_with_bytes + ")" +
+        "  ·  chunks=" + body.chunks_created));
+      if ((body.warnings || []).length) card.appendChild(make("p", "muted", "warnings: " + body.warnings.join("; ")));
+      registerPaper(body);
+      const row = make("div", "btn-row");
+      const askBtn = make("button", "btn btn-primary btn-small", "Ask about this paper");
+      askBtn.type = "button";
+      askBtn.addEventListener("click", () => {
+        $("scope").value = body.paper_id || "";
+        $("query").focus();
+        goToSection("section-ask");
+        showAskStatus("Scoped to " + body.paper_id + ". Type your question and press Ask.");
+      });
+      row.appendChild(askBtn);
+      card.appendChild(row);
+      card.appendChild(make("p", "muted", "Indexing storage belongs to the retrieval service. On a free hosted tier it is not persistent across restarts."));
     } else {
       card.appendChild(badge("Upload failed: HTTP " + done.status, "err"));
-      const p = document.createElement("p"); setHtml(p, body.detail || JSON.stringify(body).slice(0, 500));
-      card.appendChild(p);
+      card.appendChild(make("p", "error-detail", body.detail || JSON.stringify(body).slice(0, 500)));
     }
     box.appendChild(card);
   } catch (e) {
     box.appendChild(badge("Upload failed: " + e, "err"));
   } finally {
     btn.disabled = false;
+    spinnerFor("upload-spinner", false);
     setTimeout(() => prog.classList.add("hidden"), 800);
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * arXiv discovery (existing endpoints only)
+ * ------------------------------------------------------------------ */
+let arxivInFlight = false;
+
+async function searchArxiv() {
+  if (arxivInFlight) return;
+  const query = $("arxiv-query").value.trim();
+  const status = $("arxiv-status");
+  const results = $("arxiv-results");
+  results.replaceChildren();
+  if (!query) { setHtml(status, "Type a search term first."); return; }
+  arxivInFlight = true;
+  const btn = $("arxiv-btn");
+  btn.disabled = true;
+  spinnerFor("arxiv-spinner", true);
+  setHtml(status, "Searching arXiv…");
+  try {
+    const r = await fetch(retrievalBase() + "/papers/search?q=" + encodeURIComponent(query) + "&max_results=5");
+    const raw = await r.text();
+    let body;
+    try { body = raw ? JSON.parse(raw) : []; } catch (e) { body = null; }
+    if (!r.ok || !Array.isArray(body)) {
+      setHtml(status, "arXiv search failed (HTTP " + r.status + "). " + (body && body.detail ? body.detail : ""));
+      return;
+    }
+    if (!body.length) { setHtml(status, "No arXiv results for that query."); return; }
+    setHtml(status, body.length + " result(s) from arXiv.");
+    body.forEach((hit) => results.appendChild(arxivCard(hit)));
+  } catch (e) {
+    setHtml(status, "arXiv search failed: " + e);
+  } finally {
+    arxivInFlight = false;
+    btn.disabled = false;
+    spinnerFor("arxiv-spinner", false);
+  }
+}
+
+function arxivCard(hit) {
+  const card = make("article", "paper-card");
+  card.appendChild(make("p", "paper-title", hit.title || hit.arxiv_id));
+  const meta = [hit.arxiv_id];
+  if (hit.authors && hit.authors.length) meta.push(hit.authors.slice(0, 4).join(", "));
+  if (hit.published) meta.push(hit.published.slice(0, 10));
+  card.appendChild(make("p", "paper-meta", meta.filter(Boolean).join(" · ")));
+  if (hit.summary) card.appendChild(make("p", "paper-abstract", hit.summary.slice(0, 340)));
+  const row = make("div", "btn-row");
+  const importBtn = make("button", "btn btn-primary btn-small", "Import paper");
+  importBtn.type = "button";
+  const note = make("span", "muted");
+  importBtn.addEventListener("click", async () => {
+    importBtn.disabled = true;
+    setHtml(note, "Importing and indexing…");
+    try {
+      const r = await fetch(retrievalBase() + "/papers/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ arxiv_id: hit.arxiv_id }),
+      });
+      const raw = await r.text();
+      let body;
+      try { body = raw ? JSON.parse(raw) : {}; } catch (e) { body = {}; }
+      if (!r.ok) {
+        setHtml(note, "Import failed (HTTP " + r.status + "). " + (body.detail || ""));
+        return;
+      }
+      registerPaper(body);
+      setHtml(note, "Imported " + (body.paper_id || hit.arxiv_id) + " · chunks " + (body.chunks_created == null ? "?" : body.chunks_created));
+    } catch (e) {
+      setHtml(note, "Import failed: " + e);
+    } finally {
+      importBtn.disabled = false;
+    }
+  });
+  row.appendChild(importBtn);
+  row.appendChild(note);
+  card.appendChild(row);
+  return card;
+}
+
+/* ------------------------------------------------------------------ *
+ * Asking questions — append-only history
+ * ------------------------------------------------------------------ */
+let askInFlight = false;
+let historySequence = 0;
+
+function showAskStatus(text, withSpinner) {
+  const status = $("ask-status");
+  status.replaceChildren();
+  if (withSpinner) status.appendChild(make("span", "spinner"));
+  status.appendChild(document.createTextNode(text));
+}
+
+function verificationClass(status) {
+  if (status === "supported") return "ok";
+  if (status === "partially_supported" || status === "mixed") return "warn";
+  if (status === "unsupported" || status === "contradicted") return "err";
+  return "neutral";
+}
+function pipelineClass(status) {
+  if (status === "ok") return "ok";
+  if (status === "partial") return "warn";
+  if (status === "error" || status === "failed" || status === "request_failed") return "err";
+  return "neutral";
+}
+
+function historyCard(question) {
+  const card = make("article", "card history-entry");
+  const questionHeading = make("h4", "question-heading", "Question");
+  card.appendChild(questionHeading);
+  card.appendChild(make("p", "question", question));
+  return card;
+}
+
+function appendHistoryCard(card) {
+  const box = $("answer-result");
+  document.querySelectorAll("#answer-result .history-entry.latest").forEach((entry) => {
+    entry.classList.remove("latest");
+    setHtml(entry.querySelector(".question-heading"), "Question " + entry.dataset.entryNumber);
+  });
+  card.id = "answer-" + (++historySequence);
+  card.dataset.entryNumber = String(historySequence);
+  card.classList.add("latest");
+  setHtml(card.querySelector(".question-heading"), "Question " + historySequence + " · newest");
+  box.appendChild(card);
+  $("history-empty").classList.add("hidden");
+
+  const latest = $("latest-answer");
+  latest.href = "#" + card.id;
+  latest.classList.remove("hidden");
+  setHtml(latest, "Jump to newest result");
+}
+
+function appendCitations(card, citations) {
+  card.appendChild(heading("Citations"));
+  if (!citations.length) {
+    card.appendChild(make("p", "muted", "No citations returned."));
+    return;
+  }
+  const wrap = make("div", "table-scroll");
+  const t = make("table");
+  const head = make("tr");
+  ["id", "paper", "type", "reference", "page"].forEach((c) => head.appendChild(make("th", null, c)));
+  t.appendChild(head);
+  citations.forEach((c) => {
+    const tr = make("tr");
+    [c.citation_id, c.paper_id, c.type, c.reference, (c.page == null ? "—" : String(c.page))].forEach((v) => {
+      tr.appendChild(make("td", null, v == null ? "—" : String(v)));
+    });
+    t.appendChild(tr);
+  });
+  wrap.appendChild(t);
+  card.appendChild(wrap);
+}
+
+function appendClaims(card, claims) {
+  if (!claims.length) return;
+  const det = make("details");
+  det.open = true;
+  det.appendChild(make("summary", null, "Reasoning (" + claims.length + " claims)"));
+  claims.forEach((c) => {
+    const verdict = (c.verification || {}).verdict || "unverified";
+    det.appendChild(make("p", "muted", "[" + verdict + "] (" + (c.kind || "claim") + ") " +
+      (c.text || "") + "  — " + (c.evidence_ids || []).join(", ")));
+  });
+  card.appendChild(det);
+}
+
+function appendVerificationIssues(card, verification) {
+  const issues = [];
+  ["unsupported_claims", "contradicted_claims"].forEach((key) => {
+    (verification[key] || []).forEach((item) => issues.push(key.replace("_claims", "") + ": " + displayValue(item)));
+  });
+  if (!issues.length) return;
+  card.appendChild(heading("Verification details"));
+  issues.forEach((issue) => card.appendChild(make("p", "error-detail muted", issue)));
+}
+
+function appendAgentErrors(card, outputs) {
+  const errors = outputs.filter((output) => output && output.error);
+  if (!errors.length) return;
+  card.appendChild(heading("Pipeline errors"));
+  errors.forEach((output) => {
+    const error = output.error || {};
+    const parts = ["agent=" + (output.agent || "unknown")];
+    if (output.status) parts.push("status=" + output.status);
+    if (error.code) parts.push("code=" + error.code);
+    if (error.message) parts.push(error.message);
+    if (error.retriable != null) parts.push("retriable=" + error.retriable);
+    if (error.attempts != null) parts.push("attempts=" + error.attempts);
+    card.appendChild(make("p", "error-detail muted", parts.join("  ")));
+  });
+}
+
+function appendMetadata(card, body) {
+  const metadata = body.metadata || {};
+  const timings = metadata.timings_ms || {};
+  card.appendChild(make("p", "muted", "request_id=" + (body.request_id || "?") +
+    "  total_ms=" + (timings.total == null ? "?" : timings.total) +
+    "  agents=" + JSON.stringify(metadata.agent_status || {}) +
+    ((metadata.degraded || []).length ? "  degraded=" + metadata.degraded.join("; ") : "")));
+}
+
+function appendCopyAction(card, text) {
+  const row = make("div", "btn-row");
+  const btn = make("button", "btn btn-ghost btn-small", "Copy answer");
+  btn.type = "button";
+  const note = make("span", "muted");
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setHtml(note, "Copied.");
+    } catch (e) {
+      setHtml(note, "Copy unavailable in this browser context.");
+    }
+  });
+  row.appendChild(btn);
+  row.appendChild(note);
+  card.appendChild(row);
+}
+
+function renderAnswerCard(question, body) {
+  body = body || {};
+  const verification = body.verification || {};
+  const vstat = String(verification.status || "unknown").toLowerCase();
+  const pipeline = String(body.status || "unknown").toLowerCase();
+  const card = historyCard(question);
+  card.appendChild(badge("verification: " + vstat, verificationClass(vstat)));
+  card.appendChild(badge("pipeline: " + pipeline, pipelineClass(pipeline)));
+
+  card.appendChild(heading("Answer"));
+  card.appendChild(make("p", "answer", body.answer || "(empty)"));
+  if (body.answer) appendCopyAction(card, body.answer);
+  appendCitations(card, Array.isArray(body.citations) ? body.citations : []);
+  appendClaims(card, Array.isArray(body.claims) ? body.claims : []);
+  appendVerificationIssues(card, verification);
+  appendAgentErrors(card, Array.isArray(body.agent_outputs) ? body.agent_outputs : []);
+  appendMetadata(card, body);
+  appendHistoryCard(card);
+  collectSessionEvidence(body);
+  return card;
+}
+
+function renderErrorCard(question, pipeline, details, requestId) {
+  const card = historyCard(question);
+  card.classList.add("card-error");
+  card.appendChild(badge("verification: unavailable", "err"));
+  card.appendChild(badge("pipeline: " + pipeline, pipelineClass(pipeline)));
+  card.appendChild(heading("Answer"));
+  card.appendChild(make("p", "muted", "No answer returned."));
+  appendCitations(card, []);
+  card.appendChild(heading("Error details"));
+  details.forEach((detail) => card.appendChild(make("p", "error-detail muted", detail)));
+  if (requestId) card.appendChild(make("p", "muted", "request_id=" + requestId));
+  appendHistoryCard(card);
+  return card;
+}
+
+function errorDetails(body, fallback) {
+  if (!body || typeof body !== "object") return [fallback || displayValue(body)];
+  const details = [];
+  ["type", "title", "status", "code", "detail", "request_id", "retryable"].forEach((key) => {
+    if (body[key] != null) details.push(key + "=" + displayValue(body[key]));
+  });
+  if (!details.length) details.push(fallback || displayValue(body));
+  return details;
+}
+
 async function ask() {
-  const box = $("answer-result"); box.innerHTML = "";
+  if (askInFlight) return;
   const q = $("query").value.trim();
-  if (!q) { box.appendChild(badge("Type a question first", "err")); return; }
-  const btn = $("ask-btn"); btn.disabled = true;
-  const wait = document.createElement("p"); wait.className = "muted";
-  setHtml(wait, "Reasoning… (vision questions can take ~60s on local GPU)");
-  box.appendChild(wait);
+  if (!q) { showAskStatus("Type a question first."); return; }
+
+  const nlpUrl = nlpBase();
+  const p2url = retrievalBase();
+  if (nlpUrl.match(/:8000$/) && p2url.match(/:8000$/)) {
+    showAskStatus("The reasoning URL looks wrong (it points at :8000). Set it to the :8001 service — or leave it blank — then retry.");
+    return;
+  }
+
+  askInFlight = true;
+  const btn = $("ask-btn");
+  btn.disabled = true;
+  setHtml(btn, "Asking…");
+  spinnerFor("ask-spinner", true);
+  showAskStatus("Asking… vision questions can take around a minute on a local GPU.", true);
   try {
     const payload = { query: q, top_k: parseInt($("topk").value, 10) || 8 };
     const scope = $("scope").value.split(",").map((s) => s.trim()).filter(Boolean);
     if (scope.length) payload.paper_ids = scope;
-    const r = await fetch(nlpBase() + "/api/v1/ask", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch(nlpUrl.replace(/\/+$/, "") + "/api/v1/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const body = await r.json();
-    box.innerHTML = "";
-    const card = document.createElement("div"); card.className = "card";
-    if (!r.ok) {
-      card.appendChild(badge("Error HTTP " + r.status, "err"));
-      const p = document.createElement("p");
-      setHtml(p, (body.code ? "[" + body.code + "] " : "") + (body.detail || JSON.stringify(body).slice(0, 500)));
-      card.appendChild(p);
-      box.appendChild(card);
+    const rawBody = await r.text();
+    let body;
+    try {
+      body = rawBody ? JSON.parse(rawBody) : {};
+    } catch (parseError) {
+      renderErrorCard(q, "error", ["HTTP " + r.status, "The response was not valid JSON: " + rawBody.slice(0, 500)]);
+      showAskStatus("Question failed. See the newest history entry for details.");
       return;
     }
-    const vstat = (body.verification || {}).status || "unknown";
-    card.appendChild(badge("verification: " + vstat, vstat === "supported" ? "ok" : (vstat === "unverified" ? "err" : "warn")));
-    card.appendChild(badge("pipeline: " + (body.status || "?"), body.status === "ok" ? "ok" : "warn"));
-    const ans = document.createElement("p"); ans.className = "answer"; setHtml(ans, body.answer || "(empty)");
-    card.appendChild(ans);
-
-    if ((body.citations || []).length) {
-      const h = document.createElement("h3"); setHtml(h, "Citations"); card.appendChild(h);
-      const t = document.createElement("table");
-      const head = document.createElement("tr");
-      ["id", "paper", "type", "reference", "page"].forEach((c) => { const th = document.createElement("th"); setHtml(th, c); head.appendChild(th); });
-      t.appendChild(head);
-      body.citations.forEach((c) => {
-        const tr = document.createElement("tr");
-        [c.citation_id, c.paper_id, c.type, c.reference, (c.page == null ? "—" : String(c.page))].forEach((v) => {
-          const td = document.createElement("td"); setHtml(td, v); tr.appendChild(td);
-        });
-        t.appendChild(tr);
-      });
-      card.appendChild(t);
+    if (!r.ok) {
+      const requestId = body && typeof body === "object" ? body.request_id : null;
+      renderErrorCard(q, "error", errorDetails(body, "HTTP " + r.status), requestId);
+      showAskStatus("Question failed. See the newest history entry for details.");
+      return;
     }
-    if ((body.claims || []).length) {
-      const det = document.createElement("details");
-      const sum = document.createElement("summary"); setHtml(sum, "Reasoning (" + body.claims.length + " claims)");
-      det.appendChild(sum);
-      body.claims.forEach((c) => {
-        const p = document.createElement("p"); p.className = "muted";
-        setHtml(p, "[" + ((c.verification || {}).verdict || "unverified") + "] (" + c.kind + ") " + c.text + "  — " + (c.evidence_ids || []).join(", "));
-        det.appendChild(p);
-      });
-      card.appendChild(det);
-    }
-    const meta = document.createElement("p"); meta.className = "muted";
-    const timings = ((body.metadata || {}).timings_ms) || {};
-    setHtml(meta, "request_id=" + body.request_id +
-      "  total_ms=" + (timings.total == null ? "?" : timings.total) +
-      "  agents=" + JSON.stringify((body.metadata || {}).agent_status || {}) +
-      (((body.metadata || {}).degraded || []).length ? "  degraded=" + body.metadata.degraded.join("; ") : ""));
-    card.appendChild(meta);
-    box.appendChild(card);
+    renderAnswerCard(q, body);
+    showAskStatus("Question answered. The newest result is linked above.");
   } catch (e) {
-    box.appendChild(badge("Request failed: " + e, "err"));
+    renderErrorCard(q, "request_failed", ["Request failed: " + e]);
+    showAskStatus("Question failed. See the newest history entry for details.");
   } finally {
+    askInFlight = false;
     btn.disabled = false;
+    setHtml(btn, "Ask");
+    spinnerFor("ask-spinner", false);
   }
 }
 
+let clearArmed = false;
+function clearHistory() {
+  const btn = $("clear-history-btn");
+  if (!clearArmed) {
+    clearArmed = true;
+    setHtml(btn, "Confirm clear");
+    setTimeout(() => { clearArmed = false; setHtml(btn, "Clear session history"); }, 4000);
+    return;
+  }
+  clearArmed = false;
+  setHtml(btn, "Clear session history");
+  document.querySelectorAll("#answer-result .history-entry").forEach((entry) => entry.remove());
+  $("history-empty").classList.remove("hidden");
+  show($("latest-answer"), false);
+  sessionEvidence = [];
+  renderEvidence(sessionEvidence);
+  showAskStatus("Session history cleared on this page only.");
+}
+
+/* ------------------------------------------------------------------ *
+ * Figures & Tables — real retrieval evidence only
+ * ------------------------------------------------------------------ */
+let sessionEvidence = [];
+let evidenceInFlight = false;
+const BASE64_RE = /^[A-Za-z0-9+/=\r\n]+$/;
+
+function collectSessionEvidence(body) {
+  const citations = Array.isArray(body.citations) ? body.citations : [];
+  const claims = Array.isArray(body.claims) ? body.claims : [];
+  const added = [];
+  citations.forEach((c) => {
+    if (c.type !== "figure" && c.type !== "table") return;
+    const matching = claims.find((claim) => (claim.evidence_ids || []).indexOf(c.evidence_id) >= 0);
+    added.push({
+      evidence_id: c.evidence_id,
+      paper_id: c.paper_id,
+      page: c.page,
+      reference: c.reference,
+      type: c.type,
+      title: c.title,
+      caption: matching ? matching.text : null,
+      source: "answer",
+    });
+  });
+  if (added.length) {
+    sessionEvidence = added.concat(sessionEvidence.filter(
+      (existing) => !added.some((item) => item.evidence_id === existing.evidence_id)));
+    renderEvidence(sessionEvidence);
+  }
+}
+
+function figureCard(item) {
+  const card = make("article", "media-card");
+  card.appendChild(make("p", "paper-title", item.caption || item.reference || "Figure"));
+  const b64 = typeof item.image_b64 === "string" ? item.image_b64 : "";
+  if (b64 && BASE64_RE.test(b64.replace(/\s+/g, ""))) {
+    const img = document.createElement("img");
+    img.className = "media-figure";
+    img.alt = item.caption || item.reference || "Extracted figure";
+    img.loading = "lazy";
+    img.src = "data:" + (item.image_mime || "image/png") + ";base64," + b64.replace(/\s+/g, "");
+    card.appendChild(img);
+  } else {
+    card.appendChild(make("p", "muted", "No image bytes were returned for this figure by the retrieval service."));
+  }
+  const stats = make("div", "media-stats");
+  stats.appendChild(pill("page " + (item.page == null ? "?" : item.page), "sage"));
+  if (item.reference) stats.appendChild(pill(item.reference));
+  if (item.paper_id) stats.appendChild(pill(item.paper_id, "peach"));
+  if (item.evidence_id) stats.appendChild(pill(item.evidence_id));
+  card.appendChild(stats);
+  return card;
+}
+
+function tableCard(item) {
+  const card = make("article", "media-card");
+  const data = item.table_data;
+  card.appendChild(make("p", "paper-title", (data && data.caption) || item.caption || item.reference || "Table"));
+  if (data && Array.isArray(data.headers) && Array.isArray(data.rows)) {
+    const wrap = make("div", "table-scroll");
+    const t = make("table");
+    if (data.headers.length) {
+      const head = make("tr");
+      data.headers.forEach((h) => head.appendChild(make("th", null, h)));
+      t.appendChild(head);
+    }
+    data.rows.forEach((row) => {
+      const tr = make("tr");
+      (Array.isArray(row) ? row : [row]).forEach((cell) => tr.appendChild(make("td", null, cell == null ? "" : cell)));
+      t.appendChild(tr);
+    });
+    wrap.appendChild(t);
+    card.appendChild(wrap);
+  } else if (item.content) {
+    card.appendChild(make("p", "paper-abstract", String(item.content).slice(0, 600)));
+  } else {
+    card.appendChild(make("p", "muted", "No structured table data was returned for this table."));
+  }
+  const stats = make("div", "media-stats");
+  stats.appendChild(pill("page " + (item.page == null ? "?" : item.page), "sage"));
+  if (item.reference) stats.appendChild(pill(item.reference));
+  if (item.paper_id) stats.appendChild(pill(item.paper_id, "peach"));
+  if (item.evidence_id) stats.appendChild(pill(item.evidence_id));
+  card.appendChild(stats);
+  return card;
+}
+
+function renderEvidence(items) {
+  const grid = $("evidence-grid");
+  grid.replaceChildren();
+  items.forEach((item) => {
+    if (item.type === "figure") grid.appendChild(figureCard(item));
+    else if (item.type === "table") grid.appendChild(tableCard(item));
+  });
+  const any = items.length > 0;
+  show(grid, any);
+  show($("evidence-empty"), !any);
+}
+
+async function findEvidence() {
+  if (evidenceInFlight) return;
+  const query = $("evidence-query").value.trim();
+  const status = $("evidence-status");
+  if (!query) { setHtml(status, "Type what to look for first."); return; }
+  evidenceInFlight = true;
+  const btn = $("evidence-btn");
+  btn.disabled = true;
+  spinnerFor("evidence-spinner", true);
+  setHtml(status, "Searching the retrieval corpus…");
+  try {
+    const r = await fetch(retrievalBase() + "/retrieve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: query, top_k: 12 }),
+    });
+    const raw = await r.text();
+    let body;
+    try { body = raw ? JSON.parse(raw) : {}; } catch (e) { body = null; }
+    if (!r.ok || !body) {
+      setHtml(status, "Retrieval failed (HTTP " + r.status + "). " + (body && body.detail ? body.detail : ""));
+      return;
+    }
+    const items = (Array.isArray(body.evidence) ? body.evidence : [])
+      .filter((item) => item.type === "figure" || item.type === "table")
+      .map((item) => ({
+        evidence_id: item.element_id,
+        paper_id: item.paper_id,
+        page: item.page,
+        reference: item.caption || item.element_id,
+        type: item.type,
+        caption: item.caption,
+        content: item.content,
+        table_data: item.table_data,
+        image_b64: item.image_b64,
+        image_mime: item.image_mime,
+        source: "corpus",
+      }));
+    if (!items.length) {
+      setHtml(status, "No figure or table evidence matched that query.");
+      renderEvidence([]);
+      return;
+    }
+    setHtml(status, items.length + " figure/table evidence item(s) returned.");
+    renderEvidence(items);
+  } catch (e) {
+    setHtml(status, "Retrieval failed: " + e);
+  } finally {
+    evidenceInFlight = false;
+    btn.disabled = false;
+    spinnerFor("evidence-spinner", false);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Wiring
+ * ------------------------------------------------------------------ */
 $("check-btn").addEventListener("click", checkServices);
 $("upload-btn").addEventListener("click", uploadPdf);
 $("ask-btn").addEventListener("click", ask);
+$("clear-history-btn").addEventListener("click", clearHistory);
+$("arxiv-btn").addEventListener("click", searchArxiv);
+$("evidence-btn").addEventListener("click", findEvidence);
+$("evidence-session-btn").addEventListener("click", () => {
+  if (!sessionEvidence.length) {
+    setHtml($("evidence-status"), "No figures or tables have been cited by your answers yet.");
+    renderEvidence([]);
+    return;
+  }
+  setHtml($("evidence-status"), "Showing figures and tables cited by your answers in this session.");
+  renderEvidence(sessionEvidence);
+});
+$("ask-fill-btn").addEventListener("click", () => {
+  $("query").value = "Explain Figure 1 and describe what it demonstrates. Cite the supporting evidence.";
+  $("query").focus();
+});
+$("query").addEventListener("keydown", (evt) => {
+  if (evt.key === "Enter" && (evt.ctrlKey || evt.metaKey)) { evt.preventDefault(); ask(); }
+});
+
+renderSessionPapers();
+renderEvidence([]);
+show($("latest-answer"), false);
+checkServices();
 </script>
 </body>
 </html>

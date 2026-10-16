@@ -12,7 +12,7 @@ Output MUST be a single JSON object with exactly this shape (no markdown, no ext
   "findings": [
     {
       "claim_id": "cl1",
-      "kind": "author_claim | inference | limitation | methodology | definition",
+      "kind": "<exactly one of: author_claim, inference, limitation, methodology, definition>",
       "text": "<one atomic statement>",
       "evidence_ids": ["<ids of the supplied evidence that directly support it>"],
       "confidence": <0.0-1.0>

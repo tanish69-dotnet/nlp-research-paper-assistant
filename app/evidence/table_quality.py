@@ -47,6 +47,10 @@ _COMPARATIVE_TERMS = re.compile(
 _NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
 _METRIC_LABEL = re.compile(r"\bR\s*\d+\s*@\s*\d+\b", re.IGNORECASE)
 _PAPER_ID = re.compile(r"\b\d{4}\.\d{4,5}(?:v\d+)?\b", re.IGNORECASE)
+_DERIVED_VALUE = re.compile(
+    r"\b(?:difference|delta|gap|change|increase|decrease|improvement|drop|margin)\b",
+    re.IGNORECASE,
+)
 
 
 def _table_data_has_values(table_data: TableData | None) -> bool:
@@ -181,7 +185,23 @@ def table_evidence_supports_claim(item: EvidenceItem, claim: Any) -> bool:
                 table_values.add(float(str(cell).strip().rstrip("%")))
             except ValueError:
                 continue
-    return bool(claim_values) and all(value in table_values for value in claim_values)
+    if bool(claim_values) and all(value in table_values for value in claim_values):
+        return True
+
+    # A requested difference is a derived value, not a cell that should be
+    # present verbatim.  Accept only exact pairwise differences from supplied
+    # numeric cells; the LLM still has to explain the result and the cited
+    # table remains the source of both operands.
+    if claim_values and _DERIVED_VALUE.search(text):
+        values = sorted(table_values)
+        derived = {
+            round(abs(left - right), 6)
+            for index, left in enumerate(values)
+            for right in values[index + 1 :]
+        }
+        if all(round(value, 6) in derived for value in claim_values):
+            return True
+    return False
 
 
 def claim_mentions_numeric_value(text: str) -> bool:

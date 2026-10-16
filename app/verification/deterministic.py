@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from app.schemas.evidence import EvidenceBundle, TableData
 from app.schemas.claims import Claim
@@ -29,6 +29,10 @@ def claim_has_unknown_evidence(claim: Claim, supply: set[str]) -> list[str]:
 _CANDIDATE_CELL_RE = re.compile(r"\b([0-9]+(?:\.[0-9]+)?)\b")
 _METRIC_LABEL_RE = re.compile(r"\bR\s*\d+\s*@\s*\d+\b", re.IGNORECASE)
 _PAPER_ID_RE = re.compile(r"\b\d{4}\.\d{4,5}(?:v\d+)?\b", re.IGNORECASE)
+_DERIVED_VALUE_RE = re.compile(
+    r"\b(?:difference|delta|gap|change|increase|decrease|improvement|drop|margin)\b",
+    re.IGNORECASE,
+)
 
 
 def _parse_numbers_from_claim(text: str) -> list[float]:
@@ -107,6 +111,22 @@ def _claim_property_words(text: str) -> set[str]:
     return {w for w in normalized if w in _PROPERTY_WORDS or w.rstrip("s") in _PROPERTY_WORDS}
 
 
+def _contains_word(text: str, word: str) -> bool:
+    """Match a property as a token, not as a substring of another word."""
+    return bool(re.search(rf"(?<![A-Za-z0-9]){re.escape(word)}(?![A-Za-z0-9])", text))
+
+
+def _contains_number(text: str, value: float) -> bool:
+    """Find an exact numeric token (so 7 does not match 0.77 or 77)."""
+    token = f"{value:g}"
+    return bool(
+        re.search(
+            rf"(?<![A-Za-z0-9.]){re.escape(token)}(?![A-Za-z0-9.])",
+            text,
+        )
+    )
+
+
 def _unbound_numeric_assertion(claim: Claim, bundle: EvidenceBundle) -> str | None:
     """Detect numbers whose measured property lacks support in cited evidence.
 
@@ -132,18 +152,16 @@ def _unbound_numeric_assertion(claim: Claim, bundle: EvidenceBundle) -> str | No
             if item is None:
                 continue
             haystack = _evidence_text_for(item).lower()
-            found_value = any(
-                token.lower() in haystack
-                for token in (f"{value:g}", f"{value:.1f}", f"{value:.2f}")
-            )
-            if not found_value and abs(value) < 1.0 and f"{value * 100:g}" in haystack:
+            found_value = _contains_number(haystack, value)
+            if not found_value and abs(value) < 1.0 and _contains_number(haystack, value * 100):
                 found_value = True
             if not found_value:
                 continue
             # The property word must co-occur in the SAME item.
             if any(
-                prop in haystack or prop.rstrip("s") in haystack
+                _contains_word(haystack, candidate)
                 for prop in properties
+                for candidate in {prop, prop.rstrip("s"), f"{prop}s"}
             ):
                 bound = True
                 break
@@ -190,6 +208,11 @@ def maybe_contradicted_by_table(
             if not matches and numeric_cells:
                 # Require at least one table type evidence; avoid false positive
                 # on purely inferential text claims that mention a number.
+                if _DERIVED_VALUE_RE.search(claim.text):
+                    # A legitimate difference or margin need not occur as a
+                    # literal table cell.  Let the structured-table support
+                    # check (which knows the supplied operands) decide.
+                    continue
                 if any(item.type in {"table", "figure"} for item in bundle.evidence if item.evidence_id == eid):
                     return True, f"numeric value {num:g} in claim not present in table {eid}"
     return False, None

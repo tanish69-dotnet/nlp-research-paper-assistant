@@ -23,24 +23,48 @@ from app.evidence.table_quality import (
 ALLOWED_TYPES: set[str] = {"text", "table", "figure", "equation", "metadata"}
 
 
+def _normalize_reference(value: str) -> str:
+    """Canonicalize abbreviated visual references for planner matching.
+
+    Retrieval records may preserve the source spelling (``Fig. 1`` or
+    ``Tab. 2``), while query hints use the canonical ``Figure 1`` /
+    ``Table 2`` form.  Normalize only an exact leading reference token;
+    unrelated labels remain unchanged.
+    """
+    stripped = value.strip()
+    match = re.match(
+        r"^(Table|Tab\.?|Figure|Fig\.?)\s*([0-9][0-9A-Za-z\-]*)\b",
+        stripped,
+        re.IGNORECASE,
+    )
+    if not match:
+        return stripped
+    kind = "Table" if match.group(1).lower().startswith("tab") else "Figure"
+    return f"{kind} {match.group(2)}"
+
+
 def _clean_reference(source: dict[str, Any]) -> str | None:
     for key in ("reference", "label", "figure_id", "table_id"):
         value = source.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            return _normalize_reference(value)
     # Derive a human-readable label from a caption that explicitly contains
     # "Table N" / "Figure N" — only when the pattern is strong (no ambiguity).
     # This is the correct source for table/figure ``reference`` (human label,
     # not ``element_id``); element_id remains the stable ``evidence_id``.
     caption = source.get("caption")
     if isinstance(caption, str) and caption.strip():
-        match = re.search(r"\b(?:Table|Figure)\s*[0-9][0-9A-Za-z\-]*\b", caption, re.IGNORECASE)
+        match = re.search(
+            r"\b(?:Table|Tab\.?|Figure|Fig\.?)\s*[0-9][0-9A-Za-z\-]*\b",
+            caption,
+            re.IGNORECASE,
+        )
         if match:
-            return match.group(0)
+            return _normalize_reference(match.group(0))
     # element_id as a final fallback (stable, but not a human label)
     value = source.get("element_id")
     if isinstance(value, str) and value.strip():
-        return value.strip()
+        return _normalize_reference(value)
     return None
 
 

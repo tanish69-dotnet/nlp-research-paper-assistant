@@ -44,6 +44,21 @@ def test_adapter_preserves_cross_ref_provenance():
     assert item.metadata["expanded_via_cross_ref"] is True
 
 
+def test_adapter_normalizes_abbreviated_figure_reference():
+    item = adapt_retrieval_record(
+        {
+            "paper_id": "pdf_first_experimental_results_of_space_object_detec_8e992c9fa7ca",
+            "element_id": "fig_p3_01",
+            "type": "figure",
+            "caption": "Fig. 1: Wide-field view of the antenna system",
+        },
+        "retrieved",
+        0,
+    )
+
+    assert item.reference == "Figure 1"
+
+
 def test_adapter_marks_caption_only_table_as_incomplete():
     raw = {
         "paper_id": "1611.04684v1",

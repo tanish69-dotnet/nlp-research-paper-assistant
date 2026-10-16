@@ -54,10 +54,21 @@ _TABLE_INTENT_RE = re.compile(
     r"|difference\s+between\s+(?:two\s+)?(?:reported\s+)?(?:scores?|values?|results?)"
     r"|what\s+(?:is|are)\s+the\s+difference\b"
     r"|summariz(?:e|e\s+the)\s+(?:table|results)"
+    r"|(?:experimental|reported)\s+results"
     r"|(?:highest|lowest)\s+(?:value|score|f1|accuracy)"
     r"|across\s+papers"
     r")\b",
     re.IGNORECASE,
+)
+
+_FIGURE_INTENT_RE = re.compile(
+    r"\b(?:figure|fig\.?|diagram|chart|plot|curve|trend|"
+    r"architecture|visuali[sz]ation|schematic|heatmap|graph)\b",
+    re.IGNORECASE,
+)
+
+_PAPER_ID_IN_QUERY_RE = re.compile(
+    r"\b(?:arxiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)\b", re.IGNORECASE
 )
 
 
@@ -120,6 +131,92 @@ def has_table_intent(question: str) -> bool:
     return bool(_TABLE_INTENT_RE.search(question or ""))
 
 
+def has_figure_intent(question: str) -> bool:
+    """Whether the wording asks about a visual element without a number."""
+    return bool(_FIGURE_INTENT_RE.search(question or ""))
+
+
+def _query_paper_ids(question: str) -> list[str]:
+    """Extract literal arXiv IDs so model plans cannot lose paper scope."""
+    seen: set[str] = set()
+    ids: list[str] = []
+    for match in _PAPER_ID_IN_QUERY_RE.finditer(question or ""):
+        paper_id = match.group(1).lower()
+        if paper_id not in seen:
+            seen.add(paper_id)
+            ids.append(paper_id)
+    return ids
+
+
+def _ensure_deterministic_modality_coverage(
+    plan: QueryPlan,
+    question: str,
+    hints: list[ReferenceHint],
+) -> QueryPlan:
+    """Keep explicit/reference and narrow semantic routing signals authoritative.
+
+    The analyzer model is useful for decomposition, but a small local model can
+    return a text-only plan for ``which method performs best`` or ``explain the
+    architecture diagram``.  Those signals are cheap and deterministic, so
+    preserve the model plan while adding the missing specialist tasks.
+    """
+    required = list(plan.required_modalities)
+    target_references = list(plan.target_references)
+    tasks = list(plan.tasks)
+
+    wanted: list[str] = []
+    for hint in hints:
+        if hint.kind in {"table", "figure"} and hint.kind not in wanted:
+            wanted.append(hint.kind)
+        if hint.canonical not in target_references:
+            target_references.append(hint.canonical)
+    if has_table_intent(question) and "table" not in wanted:
+        wanted.append("table")
+    if has_figure_intent(question) and "figure" not in wanted:
+        wanted.append("figure")
+
+    for modality in wanted:
+        if modality not in required:
+            required.append(modality)  # type: ignore[arg-type]
+        matching = [task for task in tasks if task.modality == modality]
+        refs = [hint.canonical for hint in hints if hint.kind == modality]
+        if matching:
+            for task in matching:
+                merged = list(task.target_references)
+                for ref in refs:
+                    if ref not in merged:
+                        merged.append(ref)
+                if merged != task.target_references:
+                    tasks[tasks.index(task)] = task.model_copy(update={"target_references": merged})
+        else:
+            tasks.append(
+                AgentTask(
+                    task="answer from supplied evidence",
+                    modality=modality,  # type: ignore[arg-type]
+                    target_references=refs,
+                )
+            )
+
+    paper_ids = list(plan.paper_ids)
+    for paper_id in _query_paper_ids(question):
+        if paper_id not in paper_ids:
+            paper_ids.append(paper_id)
+    paper_scope = plan.paper_scope
+    if paper_ids and paper_scope == "any":
+        paper_scope = "single" if len(paper_ids) == 1 else "multi"
+
+    return plan.model_copy(
+        update={
+            "required_modalities": required,
+            "tasks": tasks,
+            "target_references": target_references,
+            "requires_cross_modal": plan.requires_cross_modal or len(required) > 1,
+            "paper_ids": paper_ids,
+            "paper_scope": paper_scope,
+        }
+    )
+
+
 def default_plan(question: str, paper_ids: list[str] | None = None) -> QueryPlan:
     """Conservative fallback when the model is unavailable or unusable.
 
@@ -141,6 +238,8 @@ def default_plan(question: str, paper_ids: list[str] | None = None) -> QueryPlan
         modalities.append("text")
     if has_table_intent(question) and "table" not in modalities:
         modalities.insert(0, "table")
+    if has_figure_intent(question) and "figure" not in modalities:
+        modalities.insert(0, "figure")
 
     tasks = [
         AgentTask(
@@ -157,7 +256,7 @@ def default_plan(question: str, paper_ids: list[str] | None = None) -> QueryPlan
         target_references=[h.canonical for h in hints],
         requires_cross_modal=len(modalities) > 1,
         paper_scope="any",
-        paper_ids=list(paper_ids or []),
+        paper_ids=list(paper_ids or _query_paper_ids(question)),
         sub_questions=[],
         confidence=0.4,
     )
@@ -239,6 +338,7 @@ class QueryAnalyzer:
                 self._provider, system=system, user=user, ctx=ctx
             )
             plan = _remove_paper_ids_from_references(QueryPlan.model_validate(payload))
+            plan = _ensure_deterministic_modality_coverage(plan, ctx.query, hints)
         except Exception as exc:  # noqa: BLE001 - fallback path is the contract
             logger.warning(
                 "analyzer_fallback",

@@ -8,14 +8,14 @@ reasoning agents should handle it. You must NEVER answer the question itself.
 Output MUST be a single JSON object with exactly these fields (no markdown, no extra keys):
 
 {
-  "question_type": "definition | lookup | numeric_lookup | comparison | cross_modal_comparison | multi_paper_comparison | causal_explanation | trend_analysis | aggregation_list | ablation_analysis | other",
+  "question_type": "<exactly one of: definition, lookup, numeric_lookup, comparison, cross_modal_comparison, multi_paper_comparison, causal_explanation, trend_analysis, aggregation_list, ablation_analysis, other>",
   "required_modalities": ["text", "table", "figure", "equation", "metadata"],
   "tasks": [
-    {"task": "<short task label>", "modality": "<text|table|figure|equation|metadata>", "target_references": ["<e.g. Table 3>"]}
+    {"task": "<short task label>", "modality": "<exactly one of: text, table, figure, equation, metadata>", "target_references": ["<e.g. Table 3>"]}
   ],
   "target_references": ["<explicit references found in the question>"],
-  "requires_cross_modal": true | false,
-  "paper_scope": "single | multi | any",
+  "requires_cross_modal": "<exactly true or false, no quotes>",
+  "paper_scope": "<exactly one of: single, multi, any>",
   "paper_ids": ["<paper ids if determinable>"],
   "sub_questions": [
     {"id": "sq1", "text": "<one sub-question>", "modalities": ["<modalities>"]}

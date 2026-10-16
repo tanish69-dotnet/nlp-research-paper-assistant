@@ -37,7 +37,15 @@ def plan_tasks(
     list did not cover (reference coverage).
     """
     by_evidence_id = {item.evidence_id: item for item in bundle.evidence}
-    by_reference = {item.reference: item.evidence_id for item in bundle.evidence if item.reference}
+    # Keep all matches: a PDF can legitimately expose multiple extracted
+    # image records with the same human reference (for example, a split
+    # Figure 1).  More importantly, bind references only within the task's
+    # modality so a text task mentioning Figure 1 cannot receive a figure id
+    # and then be reduced to ``no_evidence`` by TextAgent.
+    by_reference: dict[str, list[str]] = {}
+    for item in bundle.evidence:
+        if item.reference:
+            by_reference.setdefault(item.reference, []).append(item.evidence_id)
     modality_evidence: dict[str, list[str]] = {m: [] for m in _AGENTS_FOR_MODALITY}
     for item in bundle.evidence:
         modality_evidence.setdefault(item.type, []).append(item.evidence_id)
@@ -49,11 +57,21 @@ def plan_tasks(
         agent = _AGENTS_FOR_MODALITY.get(modality)
 
         # Bind claimed evidence_ids to the ones that actually exist in the bundle.
-        evidence_ids = [eid for eid in raw.evidence_ids if eid in by_evidence_id]
+        # Never assign evidence of another modality merely because a model
+        # echoed an id.  Specialist agents must receive the evidence they were
+        # actually routed to handle.
+        evidence_ids = [
+            eid
+            for eid in raw.evidence_ids
+            if eid in by_evidence_id and by_evidence_id[eid].type == modality
+        ]
         if not evidence_ids:
             for ref in raw.target_references:
-                if ref in by_reference:
-                    evidence_ids.append(by_reference[ref])
+                evidence_ids.extend(
+                    eid
+                    for eid in by_reference.get(ref, [])
+                    if by_evidence_id[eid].type == modality
+                )
             if not evidence_ids and modality_evidence.get(modality):
                 evidence_ids = list(modality_evidence[modality])
 
@@ -114,8 +132,25 @@ def plan_tasks(
                 status=status,  # type: ignore[arg-type]
                 reason=reason,
                 target_references=[ref],
-                evidence_ids=[by_reference[ref]] if ref in by_reference else [],
+                evidence_ids=[
+                    eid
+                    for eid in by_reference.get(ref, [])
+                    if by_evidence_id[eid].type == modality
+                ],
             )
         )
 
     return tasks
+
+
+def evidence_for_modality_tasks(
+    tasks: list[PlannedTask], bundle: EvidenceBundle, modality: str
+) -> tuple:
+    """Return the evidence IDs assigned to one modality, in bundle order."""
+    assigned = {
+        evidence_id
+        for task in tasks
+        if task.modality == modality and task.status == "executable"
+        for evidence_id in task.evidence_ids
+    }
+    return tuple(item for item in bundle.evidence if item.evidence_id in assigned)

@@ -189,4 +189,58 @@ def test_evidence_ids_propagate_from_bundle_by_reference(
         ],
     )
     planned = plan_tasks(plan, _bundle(), settings)
-    assert planned[0].evidence_ids == ["e_p001_p8_f5"]
+    assert planned[0].evidence_ids == [
+        "e_p001_p1_abs",
+        "e_p001_p4_s42",
+        "e_p001_p6_limit",
+        "e_p002_p9_concl",
+    ]
+
+
+def test_reference_binding_keeps_task_modality_consistent(make_settings: object) -> None:
+    """A text task mentioning Figure 1 must not receive the figure id."""
+    settings = make_settings()  # type: ignore[operator]
+    bundle = EvidenceBundle(
+        evidence=[
+            EvidenceItem(
+                evidence_id="p:txt",
+                paper_id="p",
+                type="text",
+                content="Figure 1 shows the system layout.",
+            ),
+            EvidenceItem(
+                evidence_id="p:fig-a",
+                paper_id="p",
+                type="figure",
+                reference="Figure 1",
+                content="",
+            ),
+            EvidenceItem(
+                evidence_id="p:fig-b",
+                paper_id="p",
+                type="figure",
+                reference="Figure 1",
+                content="",
+            ),
+        ]
+    )
+    plan = _plan(
+        modalities=["text", "figure"],
+        tasks=[
+            {
+                "task": "explain Figure 1 from surrounding text",
+                "modality": "text",
+                "target_references": ["Figure 1"],
+            },
+            {
+                "task": "inspect Figure 1",
+                "modality": "figure",
+                "target_references": ["Figure 1"],
+            },
+        ],
+    )
+
+    planned = plan_tasks(plan, bundle, settings)
+    by_modality = {task.modality: task for task in planned}
+    assert by_modality["text"].evidence_ids == ["p:txt"]
+    assert by_modality["figure"].evidence_ids == ["p:fig-a", "p:fig-b"]

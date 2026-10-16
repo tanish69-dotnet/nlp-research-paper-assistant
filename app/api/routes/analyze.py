@@ -23,7 +23,7 @@ from app.config import Settings
 from app.core.errors import EvidenceEmptyError
 from app.evidence.validation import validate_evidence
 from app.models.routing import ModelRegistry
-from app.orchestration.planner import plan_tasks
+from app.orchestration.planner import evidence_for_modality_tasks, plan_tasks
 from app.schemas.analysis import AnalyzeResponse
 from app.schemas.claims import Claim
 from app.schemas.evidence import EvidenceBundle
@@ -113,13 +113,14 @@ async def analyze(
 
     coros: list[tuple[str, Any]] = []
     if wants_text:
+        text_evidence = evidence_for_modality_tasks(tasks, body.evidence, "text")
         text_model = registry.model_for(
             __import__("app.models.routing", fromlist=["ModelRole"]).ModelRole.TEXT_REASONER
         )
         text_ctx = AgentContext(
             request_id=request_id,
             query=body.query,
-            evidence=tuple(body.evidence.evidence),
+            evidence=text_evidence,
             model=text_model or provider.name,
             provider_name=provider.name,
             timeout_s=timeout,
@@ -127,16 +128,17 @@ async def analyze(
             max_tokens=max_tokens,
         )
         agent = TextAgent(provider, prompt_version="v1")
-        coros.append(("text_reasoner", agent.run_for_evidence(text_ctx, tuple(body.evidence.evidence))))
+        coros.append(("text_reasoner", agent.run_for_evidence(text_ctx, text_evidence)))
 
     if wants_table:
+        table_evidence = evidence_for_modality_tasks(tasks, body.evidence, "table")
         table_model = registry.model_for(
             __import__("app.models.routing", fromlist=["ModelRole"]).ModelRole.TABLE_REASONER
         )
         table_ctx = AgentContext(
             request_id=request_id,
             query=body.query,
-            evidence=tuple(body.evidence.evidence),
+            evidence=table_evidence,
             model=table_model or provider.name,
             provider_name=provider.name,
             timeout_s=timeout,
@@ -144,16 +146,17 @@ async def analyze(
             max_tokens=max_tokens,
         )
         agent = TableAgent(provider, prompt_version="v1")
-        coros.append(("table_reasoner", agent.run_for_evidence(table_ctx, tuple(body.evidence.evidence))))
+        coros.append(("table_reasoner", agent.run_for_evidence(table_ctx, table_evidence)))
 
     if wants_figure:
+        figure_evidence = evidence_for_modality_tasks(tasks, body.evidence, "figure")
         vision_model = registry.model_for(
             __import__("app.models.routing", fromlist=["ModelRole"]).ModelRole.VISION_REASONER
         )
         vision_ctx = AgentContext(
             request_id=request_id,
             query=body.query,
-            evidence=tuple(body.evidence.evidence),
+            evidence=figure_evidence,
             model=vision_model or provider.name,
             provider_name=provider.name,
             timeout_s=timeout,
@@ -162,7 +165,7 @@ async def analyze(
             extra={"settings": settings},
         )
         agent = VisionAgent(provider, prompt_version="v1")
-        coros.append(("vision_reasoner", agent.run_for_evidence(vision_ctx, tuple(body.evidence.evidence))))
+        coros.append(("vision_reasoner", agent.run_for_evidence(vision_ctx, figure_evidence)))
 
     async def _gather() -> None:
         results = await asyncio.gather(*(coro for _, coro in coros), return_exceptions=True)
