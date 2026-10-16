@@ -23,7 +23,7 @@ from app.agents.vision_agent import VisionAgent
 from app.config import Settings
 from app.evidence.validation import validate_evidence
 from app.models.routing import ModelRegistry, ModelRole
-from app.orchestration.planner import plan_tasks
+from app.orchestration.planner import evidence_for_modality_tasks, plan_tasks
 from app.schemas.claims import Claim
 from app.schemas.evidence import EvidenceBundle
 from app.schemas.health import ProviderHealth
@@ -214,34 +214,37 @@ async def full_reasoning(
 
     coros: list[tuple[str, Any]] = []
     if want_text:
+        text_evidence = evidence_for_modality_tasks(tasks, bundle, "text")
         text_ctx = AgentContext(
             request_id=request_id,
             query=query,
-            evidence=tuple(bundle.evidence),
+            evidence=text_evidence,
             model=registry.model_for(ModelRole.TEXT_REASONER) or provider.name,
             provider_name=provider.name,
             timeout_s=timeout,
             temperature=temp,
             max_tokens=max_tokens,
         )
-        coros.append(("text_reasoner", TextAgent(provider, prompt_version="v1").run_for_evidence(text_ctx, tuple(bundle.evidence))))
+        coros.append(("text_reasoner", TextAgent(provider, prompt_version="v1").run_for_evidence(text_ctx, text_evidence)))
     if want_table:
+        table_evidence = evidence_for_modality_tasks(tasks, bundle, "table")
         table_ctx = AgentContext(
             request_id=request_id,
             query=query,
-            evidence=tuple(bundle.evidence),
+            evidence=table_evidence,
             model=registry.model_for(ModelRole.TABLE_REASONER) or provider.name,
             provider_name=provider.name,
             timeout_s=timeout,
             temperature=temp,
             max_tokens=max_tokens,
         )
-        coros.append(("table_reasoner", TableAgent(provider, prompt_version="v1").run_for_evidence(table_ctx, tuple(bundle.evidence))))
+        coros.append(("table_reasoner", TableAgent(provider, prompt_version="v1").run_for_evidence(table_ctx, table_evidence)))
     if want_figure:
+        figure_evidence = evidence_for_modality_tasks(tasks, bundle, "figure")
         vision_ctx = AgentContext(
             request_id=request_id,
             query=query,
-            evidence=tuple(bundle.evidence),
+            evidence=figure_evidence,
             model=registry.model_for(ModelRole.VISION_REASONER) or provider.name,
             provider_name=provider.name,
             timeout_s=timeout,
@@ -249,7 +252,7 @@ async def full_reasoning(
             max_tokens=max_tokens,
             extra={"settings": settings},
         )
-        coros.append(("vision_reasoner", VisionAgent(provider, prompt_version="v1").run_for_evidence(vision_ctx, tuple(bundle.evidence))))
+        coros.append(("vision_reasoner", VisionAgent(provider, prompt_version="v1").run_for_evidence(vision_ctx, figure_evidence)))
 
     claims: list[Claim] = []
     agents_started = time.perf_counter()
@@ -336,6 +339,10 @@ async def full_reasoning(
             judge_ctx,
             vision_model=registry.model_for(ModelRole.VISION_REASONER) or None,
             vision_provider=provider,
+            prompt_budget_tokens=settings.judge_prompt_budget_tokens,
+            vision_prompt_budget_tokens=settings.judge_vision_prompt_budget_tokens,
+            min_chars_per_item=settings.judge_evidence_min_chars,
+            max_caption_chars=settings.judge_evidence_max_caption_chars,
         )
         agent_runs.append(judge_run)
         if judge_run.status == "error":

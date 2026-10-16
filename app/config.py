@@ -91,6 +91,18 @@ class Settings(BaseSettings):
     max_request_bytes: int = Field(default=4 * 1024 * 1024, ge=128)
     max_context_tokens: int = Field(default=7_000, ge=256)
 
+    # --- Judge context-window budget ---------------------------------------
+    # The local text judge runs on a model whose effective window is Ollama's
+    # default num_ctx (4096 tokens); a larger prompt is rejected outright with
+    # HTTP 400 before generation.  These budgets bound the *whole* judge
+    # request (template + claims + evidence blocks) with headroom left for the
+    # JSON answer.  Vision calls additionally carry image tokens and cannot
+    # raise num_ctx, so they get a tighter budget.
+    judge_prompt_budget_tokens: int = Field(default=2600, ge=256)
+    judge_vision_prompt_budget_tokens: int = Field(default=1800, ge=256)
+    judge_evidence_min_chars: int = Field(default=400, ge=50)
+    judge_evidence_max_caption_chars: int = Field(default=320, ge=40)
+
     # --- retrieval (Person 2 service, Phase 8 /ask) --------------------------
     retrieval_mode: Literal["disabled", "mock", "http"] = "disabled"
     retrieval_base_url: str = "http://localhost:8000"

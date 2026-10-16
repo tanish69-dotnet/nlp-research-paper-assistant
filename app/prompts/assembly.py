@@ -48,7 +48,19 @@ class EvidenceContext:
     image_status: str | None = None
 
     @classmethod
-    def from_item(cls, item: EvidenceItem, max_chars: int) -> "EvidenceContext":
+    def from_item(
+        cls,
+        item: EvidenceItem,
+        max_chars: int,
+        *,
+        max_caption_chars: int | None = None,
+    ) -> "EvidenceContext":
+        """Prepare one item for rendering.
+
+        ``max_caption_chars`` bounds the caption when supplied.  Callers that
+        must fit a hard model context window (the Judge) set it — captions are
+        unbounded in the bundle and would otherwise defeat the content budget.
+        """
         text = item.content
         truncated = False
         if len(text) > max_chars:
@@ -65,13 +77,16 @@ class EvidenceContext:
                 image_status = f"image: present ({source})"
             else:
                 image_status = "image: absent — caption only"
+        caption = item.caption
+        if caption and max_caption_chars is not None and len(caption) > max_caption_chars:
+            caption = caption[:max_caption_chars].rstrip() + "…"
         return cls(
             evidence_id=item.evidence_id,
             kind=item.type,
             paper_id=item.paper_id,
             reference=item.reference,
             page=item.page,
-            caption=item.caption,
+            caption=caption,
             content=text,
             truncated=truncated,
             table_summary=table_summary,
