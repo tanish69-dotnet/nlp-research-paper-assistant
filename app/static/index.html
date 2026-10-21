@@ -242,6 +242,23 @@
 
   .spinner { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(36, 72, 61, .25); border-top-color: var(--forest); animation: spin .7s linear infinite; display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* ---------- tiny dots loader (Visual Evidence) ---------- */
+  .loader-dots { display: inline-flex; align-items: center; gap: 4px; height: 16px; flex: 0 0 auto; align-self: center; }
+  .loader-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--forest); opacity: .28; animation: dotsBounce .95s ease-in-out infinite both; }
+  .loader-dots i:nth-child(1) { animation-delay: 0s; }
+  .loader-dots i:nth-child(2) { animation-delay: .16s; }
+  .loader-dots i:nth-child(3) { animation-delay: .32s; }
+  @keyframes dotsBounce { 0%, 80%, 100% { opacity: .28; transform: scale(.7); } 40% { opacity: 1; transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .loader-dots i { animation: none; opacity: .9; }
+    .spinner { animation: none; }
+  }
+  #evidence-loader { width: 32px; }
+  .media-caption-clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .caption-toggle { font-size: .8rem; color: var(--forest); background: none; border: 1px solid var(--border); border-radius: 999px; padding: .12rem .55rem; }
+  @supports not (-webkit-line-clamp: 4) {
+    .media-caption-clamp { max-height: 5.8em; }
+  }
   #ask-status { min-height: 1.3rem; margin-top: .7rem; display: flex; align-items: center; gap: .5rem; }
   #status-line { margin-top: .7rem; font-size: .85rem; color: var(--muted); }
   #evidence-status, #arxiv-status { min-height: 1.2rem; margin-top: .6rem; }
@@ -469,7 +486,10 @@
             <div style="flex:0 0 auto; min-width:0">
               <button id="evidence-btn" class="btn btn-primary" type="button">Find evidence</button>
             </div>
-            <span id="evidence-spinner" class="spinner hidden" aria-hidden="true"></span>
+          </div>
+          <div class="row" style="gap:.65rem; align-items:center; margin-top:.6rem">
+            <input id="evidence-scope" type="text" placeholder="Scope to paper ID (optional, comma-separated)" style="flex:1 1 220px; min-width:0">
+            <span id="evidence-loader" class="loader-dots hidden" role="status" aria-label="Searching the retrieval corpus" aria-live="polite"><i></i><i></i><i></i><span class="sr-only">Loading</span></span>
           </div>
           <div id="evidence-status" class="muted" role="status" aria-live="polite"></div>
           <div class="btn-row">
@@ -1069,12 +1089,66 @@ function clearHistory() {
   showAskStatus("Session history cleared on this page only.");
 }
 
-/* ------------------------------------------------------------------ *
- * Figures & Tables — real retrieval evidence only
- * ------------------------------------------------------------------ */
-let sessionEvidence = [];
-let evidenceInFlight = false;
-const BASE64_RE = /^[A-Za-z0-9+/=\r\n]+$/;
+  /* ------------------------------------------------------------------ *
+   * Figures & Tables — real retrieval evidence only
+   * ------------------------------------------------------------------ */
+  let sessionEvidence = [];
+  let evidenceInFlight = false;
+  const BASE64_RE = /^[A-Za-z0-9+/=\r\n]+$/;
+
+  // --- Evidence relevance: compact, deterministic ranker (no vendor signal required) ---
+  function _evidenceTokens(text) {
+    const re = /[a-z0-9]+/g;
+    const toks = new Set();
+    const src = (text || "").toLowerCase();
+    for (const m of src.matchAll(re)) if (m[0].length > 2) toks.add(m[0]);
+    return toks;
+  }
+  function _refMatchScore(ref, wanted) {
+    if (!ref || !wanted.length) return 0;
+    const r = (ref || "").trim().toLowerCase();
+    for (const w of wanted) if (r === w.toLowerCase()) return 22;
+    return 0;
+  }
+  function _rankEvidence(items, query, wantedRefs) {
+    const qTokens = _evidenceTokens(query);
+    const qLower = (query || "").toLowerCase();
+    const wantedLower = wantedRefs.map((s) => s.toLowerCase());
+    const scored = items.map((item, index) => {
+      const ref = String(item.reference || "");
+      const caption = String(item.caption || "");
+      const paperTitle = String(item.paper_title || item.title || "");
+      const haystack = (ref + " " + caption + " " + paperTitle + " " + String(item.content || "")).toLowerCase();
+      let score = 0;
+      score += _refMatchScore(ref, wantedRefs) * 2; // exact Figure/Table N
+      // Caption-embedded reference (e.g. caption contains "Figure 4")
+      for (const w of wantedLower) if (caption.toLowerCase().indexOf(w) >= 0) score += 6;
+      // Retrieval score passthrough (normalized to [0,1] so it never drowns ref matching)
+      if (typeof item.score === "number" && !Number.isNaN(item.score)) score += Math.max(0, Math.min(1, item.score));
+      // Token overlap on caption/reference/title
+      for (const t of qTokens) if (haystack.indexOf(t) >= 0) score += 1.1;
+      // Phrase bonus: short meaningful bigrams present
+      const meaningful = (query || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3);
+      for (const w of meaningful) if (w && haystack.indexOf(w) >= 0) score += 0.6;
+      // Prefer structured table rows over caption-only text when query seeks values
+      if (item.type === "table" && item.table_data && item.table_data.rows && item.table_data.rows.length) score += 0.5;
+      return { item, score, index };
+    });
+    scored.sort((a, b) => b.score - a.score || a.index - b.index);
+    // Weak-match filter: keep only reasonably relevant items beyond the first few
+    const filtered = scored.filter((entry, idx) => idx < 3 || entry.score > 1.0);
+    const limited = (filtered.length ? filtered : scored).slice(0, 8);
+    // Dedup: same evidence_id OR (paper+reference+type) identical
+    const seen = new Map();
+    for (const e of limited) {
+      const key = String(e.item.evidence_id || "") || (String(e.item.paper_id) + "::" + String(e.item.reference) + "::" + String(e.item.type));
+      if (!seen.has(key)) seen.set(key, e);
+      else if (e.score > seen.get(key).score) seen.set(key, e);
+    }
+    // Return in ranked order
+    const order = limited.filter((e) => seen.get(String(e.item.evidence_id || "") || (String(e.item.paper_id) + "::" + String(e.item.reference) + "::" + String(e.item.type))) === e);
+    return order.map((e) => e.item);
+  }
 
 function collectSessionEvidence(body) {
   const citations = Array.isArray(body.citations) ? body.citations : [];
@@ -1103,19 +1177,51 @@ function collectSessionEvidence(body) {
 
 function figureCard(item) {
   const card = make("article", "media-card");
-  card.appendChild(make("p", "paper-title", item.caption || item.reference || "Figure"));
+  card.setAttribute("data-evidence-type", "figure");
+  card.setAttribute("data-evidence-id", item.evidence_id || "");
+  // Title + caption (full, expandable when long)
+  const titleText = item.title || item.paper_title || item.reference || "Figure";
+  card.appendChild(make("p", "paper-title", titleText));
+  const capText = String(item.caption || "");
+  if (capText) {
+    const captionNode = make("p", "media-caption" + (capText.length > 220 ? " media-caption-clamp" : ""), capText);
+    captionNode.setAttribute("data-caption", capText);
+    card.appendChild(captionNode);
+    if (capText.length > 220) {
+      const toggle = make("button", "caption-toggle", "Show more");
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.addEventListener("click", () => {
+        const expanded = captionNode.classList.contains("media-caption-clamp");
+        captionNode.classList.toggle("media-caption-clamp", !expanded);
+        setHtml(toggle, expanded ? "Show less" : "Show more");
+        toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      });
+      card.appendChild(toggle);
+    }
+  } else {
+    card.appendChild(make("p", "muted", "No caption returned for this figure."));
+  }
   const b64 = typeof item.image_b64 === "string" ? item.image_b64 : "";
-  if (b64 && BASE64_RE.test(b64.replace(/\s+/g, ""))) {
+  const hasBytes = b64 && BASE64_RE.test(b64.replace(/\s+/g, "")) && b64.replace(/\s+/g, "").length > 40;
+  if (hasBytes) {
     const img = document.createElement("img");
     img.className = "media-figure";
     img.alt = item.caption || item.reference || "Extracted figure";
     img.loading = "lazy";
     img.src = "data:" + (item.image_mime || "image/png") + ";base64," + b64.replace(/\s+/g, "");
+    img.style.cssText = "width:100%;height:auto;object-fit:contain;max-height:560px;";
+    img.addEventListener("error", () => img.replaceWith(make("p", "muted", "Figure image failed to load — metadata shown.")));
     card.appendChild(img);
   } else {
-    card.appendChild(make("p", "muted", "No image bytes were returned for this figure by the retrieval service."));
+    card.appendChild(make("p", "muted", ""));
+    card.lastChild.textContent = "Metadata only — no image bytes were returned for this figure by the retrieval service.";
+    card.lastChild.setAttribute("data-metadata-only", "true");
   }
+  // Provide a locator for honest distinction between image bytes and caption
+  if (item.image_b64 && !hasBytes) card.setAttribute("data-image-invalid", "true");
   const stats = make("div", "media-stats");
+  if (item.paper_title || item.title) stats.appendChild(pill("paper: " + (item.paper_title || item.title), "peach"));
   stats.appendChild(pill("page " + (item.page == null ? "?" : item.page), "sage"));
   if (item.reference) stats.appendChild(pill(item.reference));
   if (item.paper_id) stats.appendChild(pill(item.paper_id, "peach"));
@@ -1126,10 +1232,30 @@ function figureCard(item) {
 
 function tableCard(item) {
   const card = make("article", "media-card");
+  card.setAttribute("data-evidence-type", "table");
+  card.setAttribute("data-evidence-id", item.evidence_id || "");
   const data = item.table_data;
-  card.appendChild(make("p", "paper-title", (data && data.caption) || item.caption || item.reference || "Table"));
+  // Title: prefer structured caption, then evidence caption/reference
+  card.appendChild(make("p", "paper-title", (data && data.caption) || (item.caption || item.reference) || "Table"));
+  if (item.caption && (!data || data.caption !== item.caption)) {
+    const cap = String(item.caption);
+    const capNode = make("p", "media-caption" + (cap.length > 220 ? " media-caption-clamp" : ""), cap);
+    capNode.setAttribute("data-caption", cap);
+    card.appendChild(capNode);
+    if (cap.length > 220) {
+      const toggle = make("button", "caption-toggle", "Show more");
+      toggle.type = "button";
+      toggle.addEventListener("click", () => {
+        const expanded = capNode.classList.contains("media-caption-clamp");
+        capNode.classList.toggle("media-caption-clamp", !expanded);
+        setHtml(toggle, expanded ? "Show less" : "Show more");
+      });
+      card.appendChild(toggle);
+    }
+  }
   if (data && Array.isArray(data.headers) && Array.isArray(data.rows)) {
     const wrap = make("div", "table-scroll");
+    wrap.setAttribute("data-table-render", "structured");
     const t = make("table");
     if (data.headers.length) {
       const head = make("tr");
@@ -1144,15 +1270,28 @@ function tableCard(item) {
     wrap.appendChild(t);
     card.appendChild(wrap);
   } else if (item.content) {
-    card.appendChild(make("p", "paper-abstract", String(item.content).slice(0, 600)));
+    card.appendChild(make("p", "paper-abstract", String(item.content).slice(0, 900)));
   } else {
-    card.appendChild(make("p", "muted", "No structured table data was returned for this table."));
+    card.appendChild(make("p", "muted", "No structured table data was returned for this table. The retrieval service did not provide extracted cells for this table."));
+  }
+  // If the retrieval also returned a table image, render it alongside structured cells
+  if (item.image_b64 && BASE64_RE.test(String(item.image_b64).replace(/\s+/g, "")) && String(item.image_b64).replace(/\s+/g, "").length > 40) {
+    const timg = document.createElement("img");
+    timg.className = "media-figure";
+    timg.alt = item.caption || item.reference || "Extracted table image";
+    timg.loading = "lazy";
+    timg.src = "data:" + (item.image_mime || "image/png") + ";base64," + String(item.image_b64).replace(/\s+/g, "");
+    timg.style.cssText = "width:100%;height:auto;object-fit:contain;max-height:520px;";
+    timg.addEventListener("error", () => timg.remove());
+    card.appendChild(timg);
   }
   const stats = make("div", "media-stats");
-  stats.appendChild(pill("page " + (item.page == null ? "?" : item.page), "sage"));
-  if (item.reference) stats.appendChild(pill(item.reference));
+  if (item.paper_title || item.title) stats.appendChild(pill("paper: " + (item.paper_title || item.title), "peach"));
   if (item.paper_id) stats.appendChild(pill(item.paper_id, "peach"));
+  if (item.reference) stats.appendChild(pill(item.reference));
+  stats.appendChild(pill("page " + (item.page == null ? "?" : item.page), "sage"));
   if (item.evidence_id) stats.appendChild(pill(item.evidence_id));
+  if (data) stats.appendChild(pill("structured table", "sage"));
   card.appendChild(stats);
   return card;
 }
@@ -1160,13 +1299,36 @@ function tableCard(item) {
 function renderEvidence(items) {
   const grid = $("evidence-grid");
   grid.replaceChildren();
-  items.forEach((item) => {
-    if (item.type === "figure") grid.appendChild(figureCard(item));
-    else if (item.type === "table") grid.appendChild(tableCard(item));
+  // Normalize missing metadata: never crash when fields absent
+  items.forEach((raw) => {
+    const item = raw || {};
+    // Keep cards readable even when metadata missing
+    const safe = {
+      evidence_id: item.evidence_id == null ? "" : String(item.evidence_id),
+      paper_id: item.paper_id == null ? "" : String(item.paper_id),
+      page: item.page,
+      reference: item.reference == null ? "" : String(item.reference),
+      type: item.type,
+      title: item.title || item.paper_title || null,
+      caption: item.caption == null ? "" : String(item.caption),
+      content: item.content == null ? "" : String(item.content),
+      table_data: item.table_data,
+      image_b64: item.image_b64,
+      image_mime: item.image_mime,
+      paper_title: item.paper_title || item.title || null,
+      score: item.score,
+    };
+    if (safe.type === "figure") grid.appendChild(figureCard(safe));
+    else if (safe.type === "table") grid.appendChild(tableCard(safe));
   });
+  // Partition: with image/structured data vs metadata-only for figures
+  // (kept together for tests but visually grouped by honest messaging inside cards)
   const any = items.length > 0;
   show(grid, any);
   show($("evidence-empty"), !any);
+  // Preserve the empty-state messaging but show a metadata-only hint when needed
+  const onlyMetadata = any && items.every((i) => i.type === "figure" && !(i.image_b64 && String(i.image_b64).replace(/\s+/g, "").length > 40));
+  if (onlyMetadata) setHtml($("evidence-empty"), "");
 }
 
 async function findEvidence() {
@@ -1177,49 +1339,69 @@ async function findEvidence() {
   evidenceInFlight = true;
   const btn = $("evidence-btn");
   btn.disabled = true;
-  spinnerFor("evidence-spinner", true);
+  const loader = $("evidence-loader");
+  if (loader) loader.classList.remove("hidden");
   setHtml(status, "Searching the retrieval corpus…");
   try {
+    const scopeVal = ($("evidence-scope") && $("evidence-scope").value) || ($("scope") && $("scope").value) || "";
+    const paperIds = scopeVal.split(",").map((s) => s.trim()).filter(Boolean);
+    const payload = { query: query, top_k: 12 };
+    if (paperIds.length) payload.paper_ids = paperIds;
+    // Wanted Figure/Table refs (for exact-match ranking, not retrieval narrowing)
+    const wants = [];
+    for (const m of (query || "").matchAll(/\b(?:Figure|Fig\.?|Table|Tab\.?)\s*([0-9][0-9A-Za-z\-]*)\b/gi)) {
+      wants.push((m[0].trim().startsWith("F") || m[0].trim().startsWith("f") ? "Figure " : "Table ") + m[1]);
+    }
     const r = await fetch(retrievalBase() + "/retrieve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: query, top_k: 12 }),
+      body: JSON.stringify(payload),
     });
     const raw = await r.text();
-    let body;
-    try { body = raw ? JSON.parse(raw) : {}; } catch (e) { body = null; }
-    if (!r.ok || !body) {
-      setHtml(status, "Retrieval failed (HTTP " + r.status + "). " + (body && body.detail ? body.detail : ""));
+    let body2;
+    try { body2 = raw ? JSON.parse(raw) : {}; } catch (e) { body2 = null; }
+    if (!r.ok || !body2) {
+      setHtml(status, "Retrieval failed (HTTP " + r.status + "). " + (body2 && body2.detail ? body2.detail : ""));
       return;
     }
-    const items = (Array.isArray(body.evidence) ? body.evidence : [])
+    const rawItems = (Array.isArray(body2.evidence) ? body2.evidence : []);
+    const base = rawItems
       .filter((item) => item.type === "figure" || item.type === "table")
       .map((item) => ({
-        evidence_id: item.element_id,
-        paper_id: item.paper_id,
+        evidence_id: item.element_id || item.evidence_id || "",
+        paper_id: item.paper_id || "",
+        paper_title: item.paper_title || item.title || "",
+        title: item.paper_title || item.title || null,
         page: item.page,
-        reference: item.caption || item.element_id,
+        reference: item.reference || item.label || item.figure_id || item.table_id || item.element_id || "",
         type: item.type,
-        caption: item.caption,
-        content: item.content,
+        caption: item.caption || item.table_caption || item.figure_caption || "",
+        content: item.content || item.text || "",
         table_data: item.table_data,
-        image_b64: item.image_b64,
-        image_mime: item.image_mime,
+        image_b64: item.image_b64 || (item.image && (item.image.b64 || "")) || "",
+        image_mime: item.image_mime || (item.image && item.image.mime) || "image/png",
+        score: typeof item.score === "number" ? item.score : (typeof item.relevance === "number" ? item.relevance : undefined),
         source: "corpus",
       }));
+    // Server-side narrowing by paper when scope given — client-safe filter as well
+    const scoped = paperIds.length ? base.filter((it) => paperIds.indexOf(String(it.paper_id)) >= 0 || !String(it.paper_id)) : base;
+    const effective = scoped.length ? scoped : base;
+    const items = _rankEvidence(effective, query, wants);
     if (!items.length) {
-      setHtml(status, "No figure or table evidence matched that query.");
+      setHtml(status, base.length ? "No sufficiently relevant figure or table matched that query." : "No figure or table evidence matched that query.");
       renderEvidence([]);
       return;
     }
-    setHtml(status, items.length + " figure/table evidence item(s) returned.");
+    const metaOnly = items.filter((i) => i.type === "figure" && !(i.image_b64 && String(i.image_b64).replace(/\s+/g, "").length > 40)).length;
+    setHtml(status, items.length + " figure/table evidence item(s) returned." + (metaOnly ? " (" + metaOnly + " metadata only)" : ""));
     renderEvidence(items);
   } catch (e) {
     setHtml(status, "Retrieval failed: " + e);
   } finally {
     evidenceInFlight = false;
     btn.disabled = false;
-    spinnerFor("evidence-spinner", false);
+    const loader2 = $("evidence-loader");
+    if (loader2) loader2.classList.add("hidden");
   }
 }
 

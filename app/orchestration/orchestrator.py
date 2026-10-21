@@ -159,6 +159,7 @@ async def full_reasoning(
     *,
     without_judge: bool = False,
     single_agent_mode: bool = False,
+    paper_ids: tuple[str, ...] | None = None,
 ) -> OrchestratorResult:
     """Run the entire verified reasoning pipeline.
 
@@ -179,6 +180,20 @@ async def full_reasoning(
 
     # Bundle-level validation: budget + image-root confinement (fast path).
     validate_evidence(bundle, settings)
+
+    # Paper-scoped filtering: when the caller explicitly scoped the request to
+    # exact IDs (via body.paper_ids) OR the query itself names arXiv IDs,
+    # exclude evidence from unrelated papers early so specialists cannot mix
+    # them. Only apply when at least one bundle item matches the scope.
+    if paper_ids is not None:
+        wanted = {pid.strip() for pid in paper_ids if pid and pid.strip()}
+        if wanted and any(item.paper_id in wanted for item in bundle.evidence):
+            bundle = bundle.model_copy(
+                update={
+                    "evidence": [item for item in bundle.evidence if item.paper_id in wanted],
+                    "papers": [p for p in bundle.papers if p.paper_id in wanted] or bundle.papers,
+                }
+            )
 
     provider = registry.provider
 
@@ -240,6 +255,10 @@ async def full_reasoning(
         )
         coros.append(("table_reasoner", TableAgent(provider, prompt_version="v1").run_for_evidence(table_ctx, table_evidence)))
     if want_figure:
+        # Vision needs the target figure image(s) plus caption/context.
+        # The dispatched evidence keeps the full bundle so
+        # select_vision_context can attach same-paper text blocks; the agent
+        # itself bounds the prompt via compact selection.
         figure_evidence = evidence_for_modality_tasks(tasks, bundle, "figure")
         vision_ctx = AgentContext(
             request_id=request_id,
@@ -252,7 +271,12 @@ async def full_reasoning(
             max_tokens=max_tokens,
             extra={"settings": settings},
         )
-        coros.append(("vision_reasoner", VisionAgent(provider, prompt_version="v1").run_for_evidence(vision_ctx, figure_evidence)))
+        # Pass the full bundle for compact selection (figures + same-paper
+        # text). Figure items remain the visual subjects; text items become
+        # bounded caption-adjacent context. The full bundle is NOT broader
+        # retrieval — it is the same top_k from /ask.
+        vision_evidence = tuple(item for item in bundle.evidence if item.type in ("figure", "text"))
+        coros.append(("vision_reasoner", VisionAgent(provider, prompt_version="v1").run_for_evidence(vision_ctx, vision_evidence)))
 
     claims: list[Claim] = []
     agents_started = time.perf_counter()

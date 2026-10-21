@@ -108,6 +108,25 @@ def _infer_paper_hint(query: str, evidence: tuple[EvidenceItem, ...]) -> str | N
     return None
 
 
+def _figure_references_in_query(query: str) -> list[str]:
+    """Explicit Figure N mentions in the query (canonical form)."""
+    import re as _re
+
+    refs: list[str] = []
+    for m in _re.finditer(r"\b(?:Figure|Fig\.?)\s*([0-9][0-9A-Za-z\-]*)", query or "", _re.IGNORECASE):
+        canonical = f"Figure {m.group(1)}"
+        if canonical not in refs:
+            refs.append(canonical)
+    return refs
+
+
+def _figure_reference_matches_item(reference: str, item: EvidenceItem) -> bool:
+    """Whether an explicit query reference (e.g. 'Figure 4') matches an item."""
+    if not reference or item.reference is None:
+        return False
+    return item.reference.strip().lower() == reference.strip().lower()
+
+
 def _score_text_for_figure(
     text: EvidenceItem, figure: EvidenceItem, query: str
 ) -> tuple[int, str]:
@@ -153,15 +172,20 @@ def select_vision_context(
     other-paper figures are excluded from the *vision call only* — the full
     bundle still reaches text/table agents and the judge. Contradictory
     evidence is never filtered by stance, only by relevance role.
+
+    When the query explicitly names a figure (e.g. "Figure 4"), that
+    reference is the primary rank key — before paper hint and original order.
     """
     figures = [item for item in evidence if item.type == "figure"]
     with_bytes = [f for f in figures if f.image is not None and (f.image.b64 or f.image.path)]
     paper_hint = _infer_paper_hint(query, evidence)
+    wanted_refs = _figure_references_in_query(query)
 
-    def figure_key(item: EvidenceItem) -> tuple[int, int]:
+    def figure_key(item: EvidenceItem) -> tuple[int, int, int]:
+        ref_match = 0 if any(_figure_reference_matches_item(r, item) for r in wanted_refs) else 1
         same_paper = 0 if (paper_hint is not None and item.paper_id == paper_hint) else 1
         order = figures.index(item)
-        return (same_paper, order)
+        return (ref_match, same_paper, order)
 
     # Target figures first: same-paper-with-bytes, then any with-bytes, then
     # caption-only same-paper figures (context, never visual subjects).

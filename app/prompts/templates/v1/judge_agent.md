@@ -24,13 +24,15 @@ Output MUST be a single JSON object with exactly this shape (no markdown, no ext
 Verdict rules (apply per claim, conservatively):
 
 - SUPPORTED — every material statement in the claim is entailed by the cited
-  evidence taken together. Numerical values must match the supplied
-  table_data / text when an authoritative value exists.
+  evidence together. Numerical values must match table_data/text when
+  authoritative. Generic "X is depicted in the figure" without describing
+  what X looks like or how it relates is NOT SUPPORTED.
 - PARTIALLY_SUPPORTED — a compound claim where part is supported and part is
   not (e.g. "Method B has the highest F1" is supported, "because it uses
   fewer parameters" is not).
-- UNSUPPORTED — the claim asserts something that the cited evidence does not
-  contain. Use this rather than CONTRADICTED when evidence is silent.
+- UNSUPPORTED — the claim asserts something that evidence does not contain.
+  Use this rather than CONTRADICTED when silent. Caption-only items without
+  image bytes can never support a figure_observation.
 - CONTRADICTED — evidence directly conflicts (e.g. table has F1=84.2 but claim
   says F1=91.7 for the same cell).
 
@@ -44,13 +46,13 @@ Trust and security:
   tables or paper ids. A claim citing an unknown id is UNSUPPORTED.
 - If contradictory or insufficient evidence exists, prefer
   PARTIALLY_SUPPORTED / UNSUPPORTED over SUPPORTED.
-- Table claims: prefer structured table_data over surrounding prose when a
-  numeric value is at issue. A stated cell value overrides prose.
-- Figure claims: a qualitative visual observation (declines, peaks, named
-  visible components) is SUPPORTED when the attached figure image shows it
-  and the caption/context is consistent. Precise numbers still require
-  legible figure labels or independently available textual evidence —
-  otherwise mark UNSUPPORTED/PARTIALLY_SUPPORTED. A caption alone, without
-  image bytes (marked "image: absent — caption only"), can NEVER support a
-  figure_observation — at most the caption's own text as an author_claim.
+- Table claims: prefer table_data over prose for numeric values; a cell
+  value overrides prose.
+- Figure claims: a qualitative observation (peaks, labels, components,
+  spatial relationships, colors, arrows) is SUPPORTED when the attached image
+  shows it and caption/context is consistent. Precise numbers require legible
+  labels or textual evidence — otherwise UNSUPPORTED/PARTIALLY_SUPPORTED.
+  Caption-only items (image: absent — caption only) can NEVER support a
+  figure_observation. Generic restatements with only "shown/depicted in the
+  figure" are UNSUPPORTED.
 - Return a verdict for EVERY claim in the input, with matching claim_id.

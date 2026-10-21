@@ -147,6 +147,7 @@ async def ask(
         request_id=request_id,
         settings=settings,
         registry=registry,
+        paper_ids=paper_ids if paper_ids else None,
     )
 
     # Confining branch: unverified never produces a confident numeric answer.

@@ -783,6 +783,23 @@ class AnswerGenerator:
                 ),
             )
 
+        # Distinguish evidence support from answer completeness:
+        # if verified claims cover only generic restatements without specific detail,
+        # treat as incomplete rather than promoting to confident answer.
+        if _claims_are_generic_restatement(verified_claims):
+            return (
+                "The available evidence cites the figure but does not provide sufficient specific detail to fully answer the question. The supplied evidence does not establish the requested explanation.",
+                new_agent_run(
+                    ANSWER_NAME,
+                    ctx,
+                    status="partial",
+                    started_s=started,
+                    findings=[claim.claim_id for claim in verified_claims],
+                    evidence_ids_used=list({eid for c in verified_claims for eid in c.evidence_ids}),
+                    prompt_version=ANSWER_PROMPT_VERSION,
+                ),
+            )
+
         template = load_prompt("answer_generator", self._prompt_version)
         block = self._verified_claims_block(verified_claims)
         messages = assemble_three_zone(template, f"User question: {query}\n\n{block}", evidence=[])
@@ -842,6 +859,52 @@ class AnswerGenerator:
     async def run(self, ctx: AgentContext) -> AgentRun:
         _, run = await self.generate("", [], ctx)
         return run
+
+
+def _is_generic_figure_restatement(text: str) -> bool:
+    """Whether a claim is a generic 'X is depicted in the figure' restatement."""
+    import re as _re
+
+    lower = (text or "").lower()
+    # Generic pattern: "is/are depicted/shown/illustrated/displayed/presented in the figure"
+    depict_re = _re.compile(
+        r"\b(?:is|are)\s+(?:depicted|shown|illustrated|displayed|presented)\b"
+        r"|\b(?:depicted|shown|illustrated|displayed|presented)\s+in\s+(?:the\s+)?(?:figure|image|diagram|chart|plot)\b"
+    )
+    if not depict_re.search(lower):
+        return False
+    # Check for *visual* detail tokens — only those tied to what is seen
+    # (colors, labels, directions, shapes, trends, numbers). Technical nouns
+    # like "configuration" or "bistatic" do not count as visual observations.
+    specific_tokens = {
+        "arrow", "arrows", "box", "boxes", "label", "labeled", "color", "red", "blue", "green",
+        "left", "right", "top", "bottom", "axis", "axes", "trend", "curve", "slope", "peak",
+        "decline", "increase", "decrease", "rise", "fall", "drop", "higher", "lower", "greater",
+        "smaller", "dashed", "solid", "dotted", "shaded", "node", "edge", "circle", "layer",
+        "module", "input", "output", "connected", "connects", "flows", "feeds", "between",
+        "above", "below", "angle", "distance", "direction", "point", "points", "bar", "line",
+        "horizontal", "vertical", "converge", "diverge", "transmitter", "receiver",
+        "antenna", "array", "signal", "path",
+    }
+    # Numeric detail also counts as specific — but not bare figure references
+    # like "Figure 4" alone (those are labels, not measurements).
+    figure_num_re = _re.compile(r"\b(?:figure|fig\.?|table|tab\.?)\s*[0-9]", _re.IGNORECASE)
+    # Strip figure/table labels before checking for numbers
+    scrubbed = figure_num_re.sub("", lower)
+    if _re.search(r"\b\d+(?:\.\d+)?\b", scrubbed):
+        return False
+    for tok in specific_tokens:
+        if _re.search(rf"\b{_re.escape(tok)}\b", lower):
+            return False
+    return True
+
+
+def _claims_are_generic_restatement(claims: list[Claim]) -> bool:
+    """Whether all figure_observation claims are generic restatements."""
+    figure_claims = [c for c in claims if c.kind == "figure_observation"]
+    if not figure_claims:
+        return False
+    return all(_is_generic_figure_restatement(c.text) for c in figure_claims)
 
 
 def _bind_claim_ids_to_evidence_ids(claims: list[Claim]) -> dict[str, list[str]]:

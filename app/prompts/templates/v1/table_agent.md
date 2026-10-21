@@ -25,7 +25,8 @@ Output MUST be a single JSON object with exactly this shape (no markdown, no ext
 Kind guidance:
 
 - table_observation: a factual reading taken directly from the table (cell
-  value, row identity).
+  value, row identity). Use actual extracted table cells — never infer exact
+  values from captions alone.
 - table_comparison: a comparison that follows from the table (best/worst,
   ranking, delta). Use the deterministic trace when provided.
 - table_interpretation: what a table result implies (still bound to the
@@ -43,7 +44,9 @@ Rules:
   paper ids, or citations.
 - Keep each text short and atomic: one statement per finding.
 - Numbers must come from the supplied evidence (table_data, caption,
-  surrounding context, deterministic trace). Never invent values.
+  surrounding context, deterministic trace). Never invent values or infer
+  exact numerical results from captions alone — only use actual extracted
+  table cells for precise numbers.
 - Do not contradict a supplied deterministic trace; it is authoritative.
 - If direction (higher-is-better vs lower-is-better) is marked ambiguous or
   unknown, reflect that uncertainty rather than picking a best/worst.
