@@ -1,0 +1,929 @@
+
+"use strict";
+/* ------------------------------------------------------------------ *
+ * Utilities — every piece of model/API text is written with
+ * textContent. innerHTML is never used for untrusted content.
+ * ------------------------------------------------------------------ */
+const $ = (id) => document.getElementById(id);
+const nlpBase = () => $("nlpbase").value.trim() || window.location.origin;
+const retrievalBase = () => $("p2base").value.trim().replace(/\/+$/, "");
+const setHtml = (el, text) => { if (el) el.textContent = text == null ? "" : String(text); };
+const displayValue = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try { return JSON.stringify(value); } catch (e) { return String(value); }
+};
+function make(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = String(text);
+  return node;
+}
+function badge(text, cls) {
+  return make("span", "badge " + (cls || "neutral"), text);
+}
+function pill(text, cls) {
+  return make("span", "pill " + (cls || ""), text);
+}
+function heading(text) {
+  return make("h4", null, text);
+}
+function show(el, visible) {
+  if (!el) return;
+  el.classList.toggle("hidden", !visible);
+}
+function spinnerFor(id, active) {
+  const node = $(id);
+  if (node) node.classList.toggle("hidden", !active);
+}
+
+/* ------------------------------------------------------------------ *
+ * Navigation — in-page sections with real scroll targets.
+ * ------------------------------------------------------------------ */
+const navLinks = Array.prototype.slice.call(document.querySelectorAll("[data-nav]"));
+navLinks.forEach((link) => {
+  link.addEventListener("click", () => {
+    navLinks.forEach((other) => other.classList.toggle("is-active", other === link));
+  });
+});
+function goToSection(id) {
+  const target = $(id);
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("hero-ask-btn").addEventListener("click", () => { $("query").focus(); goToSection("section-ask"); });
+$("hero-upload-btn").addEventListener("click", () => goToSection("section-papers"));
+
+/* ------------------------------------------------------------------ *
+ * Service health — always the real result of an actual request.
+ * ------------------------------------------------------------------ */
+function setServicePill(state, text) {
+  const node = $("service-pill");
+  node.classList.remove("is-ok", "is-bad", "is-checking");
+  node.classList.add(state);
+  setHtml(node, "");
+  node.appendChild(make("span", "dot"));
+  node.appendChild(document.createTextNode(text));
+}
+
+async function checkServices() {
+  const line = $("status-line");
+  setHtml(line, "Checking…");
+  setServicePill("is-checking", "Checking services…");
+  const out = [];
+  let okCount = 0;
+  const p2url = retrievalBase();
+  let nlpUrl;
+  try { nlpUrl = nlpBase().replace(/\/+$/, ""); } catch (e) { nlpUrl = ""; }
+
+  if (p2url.match(/:8001$/) && nlpUrl.match(/:8000$/)) {
+    out.push("⚠ the inputs look swapped: retrieval should be :8000 and reasoning :8001");
+  }
+  try {
+    const r = await fetch(p2url + "/health");
+    out.push("retrieval /health: " + r.status + (r.ok ? " OK" : " FAIL"));
+    if (r.ok) okCount += 1;
+  } catch (e) { out.push("retrieval /health: UNREACHABLE (" + e + ")"); }
+  try {
+    const r = await fetch(nlpUrl + "/api/v1/health");
+    let detail = "";
+    try { const j = await r.json(); detail = j.status || ""; } catch (e) { detail = ""; }
+    out.push("reasoning /health: " + r.status + " " + detail);
+    if (r.ok) okCount += 1;
+  } catch (e) { out.push("reasoning /health: UNREACHABLE (" + e + ")"); }
+
+  setHtml(line, out.join("  ·  "));
+  if (okCount === 2) setServicePill("is-ok", "Both services reachable");
+  else if (okCount === 1) setServicePill("is-bad", "One service unreachable");
+  else setServicePill("is-bad", "Services unreachable");
+}
+
+/* ------------------------------------------------------------------ *
+ * Session paper registry (only papers actually indexed in this tab).
+ * ------------------------------------------------------------------ */
+const sessionPapers = [];
+
+function paperCard(paper) {
+  const card = make("article", "paper-card");
+  card.appendChild(make("p", "paper-title", paper.title || paper.paper_id));
+  const meta = [];
+  if (paper.paper_id) meta.push(paper.paper_id);
+  if (paper.authors && paper.authors.length) meta.push(paper.authors.slice(0, 3).join(", "));
+  if (paper.source_url) meta.push(paper.source_url);
+  if (meta.length) card.appendChild(make("p", "paper-meta", meta.join(" · ")));
+  if (paper.abstract) card.appendChild(make("p", "paper-abstract", paper.abstract.slice(0, 320)));
+  const stats = make("div", "media-stats");
+  if (paper.elements != null) {
+    stats.appendChild(pill("elements " + paper.elements, "sage"));
+    stats.appendChild(pill("tables " + (paper.table_elements || 0)));
+    stats.appendChild(pill("figures " + (paper.figure_elements || 0), "peach"));
+    if (paper.chunks_created != null) stats.appendChild(pill("chunks " + paper.chunks_created));
+  }
+  if (stats.childNodes.length) card.appendChild(stats);
+  if (paper.paper_id) {
+    const row = make("div", "btn-row");
+    const scopeBtn = make("button", "btn btn-ghost btn-small", "Ask about this paper");
+    scopeBtn.type = "button";
+    scopeBtn.addEventListener("click", () => {
+      $("scope").value = paper.paper_id;
+      $("query").focus();
+      goToSection("section-ask");
+      showAskStatus("Scoped to " + paper.paper_id + ". Type your question and press Ask.");
+    });
+    row.appendChild(scopeBtn);
+    card.appendChild(row);
+  }
+  return card;
+}
+
+function registerPaper(paper) {
+  if (!paper || !paper.paper_id) return;
+  const existing = sessionPapers.findIndex((item) => item.paper_id === paper.paper_id);
+  if (existing >= 0) sessionPapers[existing] = paper; else sessionPapers.push(paper);
+  renderSessionPapers();
+}
+
+function renderSessionPapers() {
+  const grid = $("paper-grid");
+  grid.replaceChildren();
+  sessionPapers.forEach((paper) => grid.appendChild(paperCard(paper)));
+  const any = sessionPapers.length > 0;
+  show(grid, any);
+  show($("paper-grid-empty"), !any);
+}
+
+/* ------------------------------------------------------------------ *
+ * Upload
+ * ------------------------------------------------------------------ */
+const dropZone = $("drop-zone");
+["dragenter", "dragover"].forEach((evt) => dropZone.addEventListener(evt, (evt2) => { evt2.preventDefault(); dropZone.classList.add("dragging"); }));
+["dragleave", "drop"].forEach((evt) => dropZone.addEventListener(evt, (evt2) => { evt2.preventDefault(); dropZone.classList.remove("dragging"); }));
+dropZone.addEventListener("drop", (evt) => {
+  const files = evt.dataTransfer && evt.dataTransfer.files;
+  if (!files || !files.length) return;
+  try { $("pdf").files = files; } catch (e) { return; }
+  showFileName();
+});
+$("pdf").addEventListener("change", showFileName);
+
+function showFileName() {
+  const node = $("file-name");
+  const file = $("pdf").files[0];
+  if (!file) { setHtml(node, "No file selected"); node.classList.remove("has-file"); return; }
+  setHtml(node, "Selected: " + file.name + " (" + (file.size / (1024 * 1024)).toFixed(1) + " MiB)");
+  node.classList.add("has-file");
+}
+
+async function uploadPdf() {
+  const box = $("upload-result");
+  box.replaceChildren();
+  const file = $("pdf").files[0];
+  if (!file) { box.appendChild(badge("No file selected", "err")); return; }
+  const btn = $("upload-btn");
+  btn.disabled = true;
+  spinnerFor("upload-spinner", true);
+  const prog = $("upload-progress");
+  prog.classList.remove("hidden");
+  prog.value = 0;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    if ($("paper-id").value.trim()) form.append("paper_id", $("paper-id").value.trim());
+    if ($("paper-title").value.trim()) form.append("title", $("paper-title").value.trim());
+    const xhr = new XMLHttpRequest();
+    const done = await new Promise((resolve, reject) => {
+      xhr.upload.onprogress = (evt) => { if (evt.lengthComputable) prog.value = Math.round(100 * evt.loaded / evt.total); };
+      xhr.onload = () => resolve(xhr);
+      xhr.onerror = () => reject(new Error("upload failed (network)"));
+      xhr.open("POST", retrievalBase() + "/ingest-pdf");
+      xhr.send(form);
+    });
+    prog.value = 100;
+    let body = {};
+    try { body = JSON.parse(done.responseText); } catch (e) { body = { detail: done.responseText.slice(0, 500) }; }
+    const card = make("div", "card card-flat");
+    if (done.status >= 200 && done.status < 300) {
+      card.appendChild(badge("Indexed", "ok"));
+      card.appendChild(make("p", null, "paper_id=" + body.paper_id + "  ·  elements=" + body.elements +
+        " (text=" + body.text_elements + ", table=" + body.table_elements +
+        ", figure=" + body.figure_elements + " with_bytes=" + body.figures_with_bytes + ")" +
+        "  ·  chunks=" + body.chunks_created));
+      if ((body.warnings || []).length) card.appendChild(make("p", "muted", "warnings: " + body.warnings.join("; ")));
+      registerPaper(body);
+      const row = make("div", "btn-row");
+      const askBtn = make("button", "btn btn-primary btn-small", "Ask about this paper");
+      askBtn.type = "button";
+      askBtn.addEventListener("click", () => {
+        $("scope").value = body.paper_id || "";
+        $("query").focus();
+        goToSection("section-ask");
+        showAskStatus("Scoped to " + body.paper_id + ". Type your question and press Ask.");
+      });
+      row.appendChild(askBtn);
+      card.appendChild(row);
+      card.appendChild(make("p", "muted", "Indexing storage belongs to the retrieval service. On a free hosted tier it is not persistent across restarts."));
+    } else {
+      card.appendChild(badge("Upload failed: HTTP " + done.status, "err"));
+      card.appendChild(make("p", "error-detail", body.detail || JSON.stringify(body).slice(0, 500)));
+    }
+    box.appendChild(card);
+  } catch (e) {
+    box.appendChild(badge("Upload failed: " + e, "err"));
+  } finally {
+    btn.disabled = false;
+    spinnerFor("upload-spinner", false);
+    setTimeout(() => prog.classList.add("hidden"), 800);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * arXiv discovery (existing endpoints only)
+ * ------------------------------------------------------------------ */
+let arxivInFlight = false;
+
+async function searchArxiv() {
+  if (arxivInFlight) return;
+  const query = $("arxiv-query").value.trim();
+  const status = $("arxiv-status");
+  const results = $("arxiv-results");
+  results.replaceChildren();
+  if (!query) { setHtml(status, "Type a search term first."); return; }
+  arxivInFlight = true;
+  const btn = $("arxiv-btn");
+  btn.disabled = true;
+  spinnerFor("arxiv-spinner", true);
+  setHtml(status, "Searching arXiv…");
+  try {
+    const r = await fetch(retrievalBase() + "/papers/search?q=" + encodeURIComponent(query) + "&max_results=5");
+    const raw = await r.text();
+    let body;
+    try { body = raw ? JSON.parse(raw) : []; } catch (e) { body = null; }
+    if (!r.ok || !Array.isArray(body)) {
+      setHtml(status, "arXiv search failed (HTTP " + r.status + "). " + (body && body.detail ? body.detail : ""));
+      return;
+    }
+    if (!body.length) { setHtml(status, "No arXiv results for that query."); return; }
+    setHtml(status, body.length + " result(s) from arXiv.");
+    body.forEach((hit) => results.appendChild(arxivCard(hit)));
+  } catch (e) {
+    setHtml(status, "arXiv search failed: " + e);
+  } finally {
+    arxivInFlight = false;
+    btn.disabled = false;
+    spinnerFor("arxiv-spinner", false);
+  }
+}
+
+function arxivCard(hit) {
+  const card = make("article", "paper-card");
+  card.appendChild(make("p", "paper-title", hit.title || hit.arxiv_id));
+  const meta = [hit.arxiv_id];
+  if (hit.authors && hit.authors.length) meta.push(hit.authors.slice(0, 4).join(", "));
+  if (hit.published) meta.push(hit.published.slice(0, 10));
+  card.appendChild(make("p", "paper-meta", meta.filter(Boolean).join(" · ")));
+  if (hit.summary) card.appendChild(make("p", "paper-abstract", hit.summary.slice(0, 340)));
+  const row = make("div", "btn-row");
+  const importBtn = make("button", "btn btn-primary btn-small", "Import paper");
+  importBtn.type = "button";
+  const note = make("span", "muted");
+  importBtn.addEventListener("click", async () => {
+    importBtn.disabled = true;
+    setHtml(note, "Importing and indexing…");
+    try {
+      const r = await fetch(retrievalBase() + "/papers/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ arxiv_id: hit.arxiv_id }),
+      });
+      const raw = await r.text();
+      let body;
+      try { body = raw ? JSON.parse(raw) : {}; } catch (e) { body = {}; }
+      if (!r.ok) {
+        setHtml(note, "Import failed (HTTP " + r.status + "). " + (body.detail || ""));
+        return;
+      }
+      registerPaper(body);
+      setHtml(note, "Imported " + (body.paper_id || hit.arxiv_id) + " · chunks " + (body.chunks_created == null ? "?" : body.chunks_created));
+    } catch (e) {
+      setHtml(note, "Import failed: " + e);
+    } finally {
+      importBtn.disabled = false;
+    }
+  });
+  row.appendChild(importBtn);
+  row.appendChild(note);
+  card.appendChild(row);
+  return card;
+}
+
+/* ------------------------------------------------------------------ *
+ * Asking questions — append-only history
+ * ------------------------------------------------------------------ */
+let askInFlight = false;
+let historySequence = 0;
+
+function showAskStatus(text, withSpinner) {
+  const status = $("ask-status");
+  status.replaceChildren();
+  if (withSpinner) status.appendChild(make("span", "spinner"));
+  status.appendChild(document.createTextNode(text));
+}
+
+function verificationClass(status) {
+  if (status === "supported") return "ok";
+  if (status === "partially_supported" || status === "mixed") return "warn";
+  if (status === "unsupported" || status === "contradicted") return "err";
+  return "neutral";
+}
+function pipelineClass(status) {
+  if (status === "ok") return "ok";
+  if (status === "partial") return "warn";
+  if (status === "error" || status === "failed" || status === "request_failed") return "err";
+  return "neutral";
+}
+
+function historyCard(question) {
+  const card = make("article", "card history-entry");
+  const questionHeading = make("h4", "question-heading", "Question");
+  card.appendChild(questionHeading);
+  card.appendChild(make("p", "question", question));
+  return card;
+}
+
+function appendHistoryCard(card) {
+  const box = $("answer-result");
+  document.querySelectorAll("#answer-result .history-entry.latest").forEach((entry) => {
+    entry.classList.remove("latest");
+    setHtml(entry.querySelector(".question-heading"), "Question " + entry.dataset.entryNumber);
+  });
+  card.id = "answer-" + (++historySequence);
+  card.dataset.entryNumber = String(historySequence);
+  card.classList.add("latest");
+  setHtml(card.querySelector(".question-heading"), "Question " + historySequence + " · newest");
+  box.appendChild(card);
+  $("history-empty").classList.add("hidden");
+
+  const latest = $("latest-answer");
+  latest.href = "#" + card.id;
+  latest.classList.remove("hidden");
+  setHtml(latest, "Jump to newest result");
+}
+
+function appendCitations(card, citations) {
+  card.appendChild(heading("Citations"));
+  if (!citations.length) {
+    card.appendChild(make("p", "muted", "No citations returned."));
+    return;
+  }
+  const wrap = make("div", "table-scroll");
+  const t = make("table");
+  const head = make("tr");
+  ["id", "paper", "type", "reference", "page"].forEach((c) => head.appendChild(make("th", null, c)));
+  t.appendChild(head);
+  citations.forEach((c) => {
+    const tr = make("tr");
+    [c.citation_id, c.paper_id, c.type, c.reference, (c.page == null ? "—" : String(c.page))].forEach((v) => {
+      tr.appendChild(make("td", null, v == null ? "—" : String(v)));
+    });
+    t.appendChild(tr);
+  });
+  wrap.appendChild(t);
+  card.appendChild(wrap);
+}
+
+function appendClaims(card, claims) {
+  if (!claims.length) return;
+  const det = make("details");
+  det.open = true;
+  det.appendChild(make("summary", null, "Reasoning (" + claims.length + " claims)"));
+  claims.forEach((c) => {
+    const verdict = (c.verification || {}).verdict || "unverified";
+    det.appendChild(make("p", "muted", "[" + verdict + "] (" + (c.kind || "claim") + ") " +
+      (c.text || "") + "  — " + (c.evidence_ids || []).join(", ")));
+  });
+  card.appendChild(det);
+}
+
+function appendVerificationIssues(card, verification) {
+  const issues = [];
+  ["unsupported_claims", "contradicted_claims"].forEach((key) => {
+    (verification[key] || []).forEach((item) => issues.push(key.replace("_claims", "") + ": " + displayValue(item)));
+  });
+  if (!issues.length) return;
+  card.appendChild(heading("Verification details"));
+  issues.forEach((issue) => card.appendChild(make("p", "error-detail muted", issue)));
+}
+
+function appendAgentErrors(card, outputs) {
+  const errors = outputs.filter((output) => output && output.error);
+  if (!errors.length) return;
+  card.appendChild(heading("Pipeline errors"));
+  errors.forEach((output) => {
+    const error = output.error || {};
+    const parts = ["agent=" + (output.agent || "unknown")];
+    if (output.status) parts.push("status=" + output.status);
+    if (error.code) parts.push("code=" + error.code);
+    if (error.message) parts.push(error.message);
+    if (error.retriable != null) parts.push("retriable=" + error.retriable);
+    if (error.attempts != null) parts.push("attempts=" + error.attempts);
+    card.appendChild(make("p", "error-detail muted", parts.join("  ")));
+  });
+}
+
+function appendMetadata(card, body) {
+  const metadata = body.metadata || {};
+  const timings = metadata.timings_ms || {};
+  card.appendChild(make("p", "muted", "request_id=" + (body.request_id || "?") +
+    "  total_ms=" + (timings.total == null ? "?" : timings.total) +
+    "  agents=" + JSON.stringify(metadata.agent_status || {}) +
+    ((metadata.degraded || []).length ? "  degraded=" + metadata.degraded.join("; ") : "")));
+}
+
+function appendCopyAction(card, text) {
+  const row = make("div", "btn-row");
+  const btn = make("button", "btn btn-ghost btn-small", "Copy answer");
+  btn.type = "button";
+  const note = make("span", "muted");
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setHtml(note, "Copied.");
+    } catch (e) {
+      setHtml(note, "Copy unavailable in this browser context.");
+    }
+  });
+  row.appendChild(btn);
+  row.appendChild(note);
+  card.appendChild(row);
+}
+
+function renderAnswerCard(question, body) {
+  body = body || {};
+  const verification = body.verification || {};
+  const vstat = String(verification.status || "unknown").toLowerCase();
+  const pipeline = String(body.status || "unknown").toLowerCase();
+  const card = historyCard(question);
+  card.appendChild(badge("verification: " + vstat, verificationClass(vstat)));
+  card.appendChild(badge("pipeline: " + pipeline, pipelineClass(pipeline)));
+
+  card.appendChild(heading("Answer"));
+  card.appendChild(make("p", "answer", body.answer || "(empty)"));
+  if (body.answer) appendCopyAction(card, body.answer);
+  appendCitations(card, Array.isArray(body.citations) ? body.citations : []);
+  appendClaims(card, Array.isArray(body.claims) ? body.claims : []);
+  appendVerificationIssues(card, verification);
+  appendAgentErrors(card, Array.isArray(body.agent_outputs) ? body.agent_outputs : []);
+  appendMetadata(card, body);
+  appendHistoryCard(card);
+  collectSessionEvidence(body);
+  return card;
+}
+
+function renderErrorCard(question, pipeline, details, requestId) {
+  const card = historyCard(question);
+  card.classList.add("card-error");
+  card.appendChild(badge("verification: unavailable", "err"));
+  card.appendChild(badge("pipeline: " + pipeline, pipelineClass(pipeline)));
+  card.appendChild(heading("Answer"));
+  card.appendChild(make("p", "muted", "No answer returned."));
+  appendCitations(card, []);
+  card.appendChild(heading("Error details"));
+  details.forEach((detail) => card.appendChild(make("p", "error-detail muted", detail)));
+  if (requestId) card.appendChild(make("p", "muted", "request_id=" + requestId));
+  appendHistoryCard(card);
+  return card;
+}
+
+function errorDetails(body, fallback) {
+  if (!body || typeof body !== "object") return [fallback || displayValue(body)];
+  const details = [];
+  ["type", "title", "status", "code", "detail", "request_id", "retryable"].forEach((key) => {
+    if (body[key] != null) details.push(key + "=" + displayValue(body[key]));
+  });
+  if (!details.length) details.push(fallback || displayValue(body));
+  return details;
+}
+
+async function ask() {
+  if (askInFlight) return;
+  const q = $("query").value.trim();
+  if (!q) { showAskStatus("Type a question first."); return; }
+
+  const nlpUrl = nlpBase();
+  const p2url = retrievalBase();
+  if (nlpUrl.match(/:8000$/) && p2url.match(/:8000$/)) {
+    showAskStatus("The reasoning URL looks wrong (it points at :8000). Set it to the :8001 service — or leave it blank — then retry.");
+    return;
+  }
+
+  askInFlight = true;
+  const btn = $("ask-btn");
+  btn.disabled = true;
+  setHtml(btn, "Asking…");
+  spinnerFor("ask-spinner", true);
+  showAskStatus("Asking… vision questions can take around a minute on a local GPU.", true);
+  try {
+    const payload = { query: q, top_k: parseInt($("topk").value, 10) || 8 };
+    const scope = $("scope").value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (scope.length) payload.paper_ids = scope;
+    const r = await fetch(nlpUrl.replace(/\/+$/, "") + "/api/v1/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const rawBody = await r.text();
+    let body;
+    try {
+      body = rawBody ? JSON.parse(rawBody) : {};
+    } catch (parseError) {
+      renderErrorCard(q, "error", ["HTTP " + r.status, "The response was not valid JSON: " + rawBody.slice(0, 500)]);
+      showAskStatus("Question failed. See the newest history entry for details.");
+      return;
+    }
+    if (!r.ok) {
+      const requestId = body && typeof body === "object" ? body.request_id : null;
+      renderErrorCard(q, "error", errorDetails(body, "HTTP " + r.status), requestId);
+      showAskStatus("Question failed. See the newest history entry for details.");
+      return;
+    }
+    renderAnswerCard(q, body);
+    showAskStatus("Question answered. The newest result is linked above.");
+  } catch (e) {
+    renderErrorCard(q, "request_failed", ["Request failed: " + e]);
+    showAskStatus("Question failed. See the newest history entry for details.");
+  } finally {
+    askInFlight = false;
+    btn.disabled = false;
+    setHtml(btn, "Ask");
+    spinnerFor("ask-spinner", false);
+  }
+}
+
+let clearArmed = false;
+function clearHistory() {
+  const btn = $("clear-history-btn");
+  if (!clearArmed) {
+    clearArmed = true;
+    setHtml(btn, "Confirm clear");
+    setTimeout(() => { clearArmed = false; setHtml(btn, "Clear session history"); }, 4000);
+    return;
+  }
+  clearArmed = false;
+  setHtml(btn, "Clear session history");
+  document.querySelectorAll("#answer-result .history-entry").forEach((entry) => entry.remove());
+  $("history-empty").classList.remove("hidden");
+  show($("latest-answer"), false);
+  sessionEvidence = [];
+  renderEvidence(sessionEvidence);
+  showAskStatus("Session history cleared on this page only.");
+}
+
+  /* ------------------------------------------------------------------ *
+   * Figures & Tables — real retrieval evidence only
+   * ------------------------------------------------------------------ */
+  let sessionEvidence = [];
+  let evidenceInFlight = false;
+  const BASE64_RE = /^[A-Za-z0-9+/=\r\n]+$/;
+
+  // --- Evidence relevance: compact, deterministic ranker (no vendor signal required) ---
+  function _evidenceTokens(text) {
+    const re = /[a-z0-9]+/g;
+    const toks = new Set();
+    const src = (text || "").toLowerCase();
+    for (const m of src.matchAll(re)) if (m[0].length > 2) toks.add(m[0]);
+    return toks;
+  }
+  function _refMatchScore(ref, wanted) {
+    if (!ref || !wanted.length) return 0;
+    const r = (ref || "").trim().toLowerCase();
+    for (const w of wanted) if (r === w.toLowerCase()) return 22;
+    return 0;
+  }
+  function _rankEvidence(items, query, wantedRefs) {
+    const qTokens = _evidenceTokens(query);
+    const qLower = (query || "").toLowerCase();
+    const wantedLower = wantedRefs.map((s) => s.toLowerCase());
+    const scored = items.map((item, index) => {
+      const ref = String(item.reference || "");
+      const caption = String(item.caption || "");
+      const paperTitle = String(item.paper_title || item.title || "");
+      const haystack = (ref + " " + caption + " " + paperTitle + " " + String(item.content || "")).toLowerCase();
+      let score = 0;
+      score += _refMatchScore(ref, wantedRefs) * 2; // exact Figure/Table N
+      // Caption-embedded reference (e.g. caption contains "Figure 4")
+      for (const w of wantedLower) if (caption.toLowerCase().indexOf(w) >= 0) score += 6;
+      // Retrieval score passthrough (normalized to [0,1] so it never drowns ref matching)
+      if (typeof item.score === "number" && !Number.isNaN(item.score)) score += Math.max(0, Math.min(1, item.score));
+      // Token overlap on caption/reference/title
+      for (const t of qTokens) if (haystack.indexOf(t) >= 0) score += 1.1;
+      // Phrase bonus: short meaningful bigrams present
+      const meaningful = (query || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3);
+      for (const w of meaningful) if (w && haystack.indexOf(w) >= 0) score += 0.6;
+      // Prefer structured table rows over caption-only text when query seeks values
+      if (item.type === "table" && item.table_data && item.table_data.rows && item.table_data.rows.length) score += 0.5;
+      return { item, score, index };
+    });
+    scored.sort((a, b) => b.score - a.score || a.index - b.index);
+    // Weak-match filter: keep only reasonably relevant items beyond the first few
+    const filtered = scored.filter((entry, idx) => idx < 3 || entry.score > 1.0);
+    const limited = (filtered.length ? filtered : scored).slice(0, 8);
+    // Dedup: same evidence_id OR (paper+reference+type) identical
+    const seen = new Map();
+    for (const e of limited) {
+      const key = String(e.item.evidence_id || "") || (String(e.item.paper_id) + "::" + String(e.item.reference) + "::" + String(e.item.type));
+      if (!seen.has(key)) seen.set(key, e);
+      else if (e.score > seen.get(key).score) seen.set(key, e);
+    }
+    // Return in ranked order
+    const order = limited.filter((e) => seen.get(String(e.item.evidence_id || "") || (String(e.item.paper_id) + "::" + String(e.item.reference) + "::" + String(e.item.type))) === e);
+    return order.map((e) => e.item);
+  }
+
+function collectSessionEvidence(body) {
+  const citations = Array.isArray(body.citations) ? body.citations : [];
+  const claims = Array.isArray(body.claims) ? body.claims : [];
+  const added = [];
+  citations.forEach((c) => {
+    if (c.type !== "figure" && c.type !== "table") return;
+    const matching = claims.find((claim) => (claim.evidence_ids || []).indexOf(c.evidence_id) >= 0);
+    added.push({
+      evidence_id: c.evidence_id,
+      paper_id: c.paper_id,
+      page: c.page,
+      reference: c.reference,
+      type: c.type,
+      title: c.title,
+      caption: matching ? matching.text : null,
+      source: "answer",
+    });
+  });
+  if (added.length) {
+    sessionEvidence = added.concat(sessionEvidence.filter(
+      (existing) => !added.some((item) => item.evidence_id === existing.evidence_id)));
+    renderEvidence(sessionEvidence);
+  }
+}
+
+function figureCard(item) {
+  const card = make("article", "media-card");
+  card.setAttribute("data-evidence-type", "figure");
+  card.setAttribute("data-evidence-id", item.evidence_id || "");
+  // Title + caption (full, expandable when long)
+  const titleText = item.title || item.paper_title || item.reference || "Figure";
+  card.appendChild(make("p", "paper-title", titleText));
+  const capText = String(item.caption || "");
+  if (capText) {
+    const captionNode = make("p", "media-caption" + (capText.length > 220 ? " media-caption-clamp" : ""), capText);
+    captionNode.setAttribute("data-caption", capText);
+    card.appendChild(captionNode);
+    if (capText.length > 220) {
+      const toggle = make("button", "caption-toggle", "Show more");
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.addEventListener("click", () => {
+        const expanded = captionNode.classList.contains("media-caption-clamp");
+        captionNode.classList.toggle("media-caption-clamp", !expanded);
+        setHtml(toggle, expanded ? "Show less" : "Show more");
+        toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      });
+      card.appendChild(toggle);
+    }
+  } else {
+    card.appendChild(make("p", "muted", "No caption returned for this figure."));
+  }
+  const b64 = typeof item.image_b64 === "string" ? item.image_b64 : "";
+  const hasBytes = b64 && BASE64_RE.test(b64.replace(/\s+/g, "")) && b64.replace(/\s+/g, "").length > 40;
+  if (hasBytes) {
+    const img = document.createElement("img");
+    img.className = "media-figure";
+    img.alt = item.caption || item.reference || "Extracted figure";
+    img.loading = "lazy";
+    img.src = "data:" + (item.image_mime || "image/png") + ";base64," + b64.replace(/\s+/g, "");
+    img.style.cssText = "width:100%;height:auto;object-fit:contain;max-height:560px;";
+    img.addEventListener("error", () => img.replaceWith(make("p", "muted", "Figure image failed to load — metadata shown.")));
+    card.appendChild(img);
+  } else {
+    card.appendChild(make("p", "muted", ""));
+    card.lastChild.textContent = "Metadata only — no image bytes were returned for this figure by the retrieval service.";
+    card.lastChild.setAttribute("data-metadata-only", "true");
+  }
+  // Provide a locator for honest distinction between image bytes and caption
+  if (item.image_b64 && !hasBytes) card.setAttribute("data-image-invalid", "true");
+  const stats = make("div", "media-stats");
+  if (item.paper_title || item.title) stats.appendChild(pill("paper: " + (item.paper_title || item.title), "peach"));
+  stats.appendChild(pill("page " + (item.page == null ? "?" : item.page), "sage"));
+  if (item.reference) stats.appendChild(pill(item.reference));
+  if (item.paper_id) stats.appendChild(pill(item.paper_id, "peach"));
+  if (item.evidence_id) stats.appendChild(pill(item.evidence_id));
+  card.appendChild(stats);
+  return card;
+}
+
+function tableCard(item) {
+  const card = make("article", "media-card");
+  card.setAttribute("data-evidence-type", "table");
+  card.setAttribute("data-evidence-id", item.evidence_id || "");
+  const data = item.table_data;
+  // Title: prefer structured caption, then evidence caption/reference
+  card.appendChild(make("p", "paper-title", (data && data.caption) || (item.caption || item.reference) || "Table"));
+  if (item.caption && (!data || data.caption !== item.caption)) {
+    const cap = String(item.caption);
+    const capNode = make("p", "media-caption" + (cap.length > 220 ? " media-caption-clamp" : ""), cap);
+    capNode.setAttribute("data-caption", cap);
+    card.appendChild(capNode);
+    if (cap.length > 220) {
+      const toggle = make("button", "caption-toggle", "Show more");
+      toggle.type = "button";
+      toggle.addEventListener("click", () => {
+        const expanded = capNode.classList.contains("media-caption-clamp");
+        capNode.classList.toggle("media-caption-clamp", !expanded);
+        setHtml(toggle, expanded ? "Show less" : "Show more");
+      });
+      card.appendChild(toggle);
+    }
+  }
+  if (data && Array.isArray(data.headers) && Array.isArray(data.rows)) {
+    const wrap = make("div", "table-scroll");
+    wrap.setAttribute("data-table-render", "structured");
+    const t = make("table");
+    if (data.headers.length) {
+      const head = make("tr");
+      data.headers.forEach((h) => head.appendChild(make("th", null, h)));
+      t.appendChild(head);
+    }
+    data.rows.forEach((row) => {
+      const tr = make("tr");
+      (Array.isArray(row) ? row : [row]).forEach((cell) => tr.appendChild(make("td", null, cell == null ? "" : cell)));
+      t.appendChild(tr);
+    });
+    wrap.appendChild(t);
+    card.appendChild(wrap);
+  } else if (item.content) {
+    card.appendChild(make("p", "paper-abstract", String(item.content).slice(0, 900)));
+  } else {
+    card.appendChild(make("p", "muted", "No structured table data was returned for this table. The retrieval service did not provide extracted cells for this table."));
+  }
+  // If the retrieval also returned a table image, render it alongside structured cells
+  if (item.image_b64 && BASE64_RE.test(String(item.image_b64).replace(/\s+/g, "")) && String(item.image_b64).replace(/\s+/g, "").length > 40) {
+    const timg = document.createElement("img");
+    timg.className = "media-figure";
+    timg.alt = item.caption || item.reference || "Extracted table image";
+    timg.loading = "lazy";
+    timg.src = "data:" + (item.image_mime || "image/png") + ";base64," + String(item.image_b64).replace(/\s+/g, "");
+    timg.style.cssText = "width:100%;height:auto;object-fit:contain;max-height:520px;";
+    timg.addEventListener("error", () => timg.remove());
+    card.appendChild(timg);
+  }
+  const stats = make("div", "media-stats");
+  if (item.paper_title || item.title) stats.appendChild(pill("paper: " + (item.paper_title || item.title), "peach"));
+  if (item.paper_id) stats.appendChild(pill(item.paper_id, "peach"));
+  if (item.reference) stats.appendChild(pill(item.reference));
+  stats.appendChild(pill("page " + (item.page == null ? "?" : item.page), "sage"));
+  if (item.evidence_id) stats.appendChild(pill(item.evidence_id));
+  if (data) stats.appendChild(pill("structured table", "sage"));
+  card.appendChild(stats);
+  return card;
+}
+
+function renderEvidence(items) {
+  const grid = $("evidence-grid");
+  grid.replaceChildren();
+  // Normalize missing metadata: never crash when fields absent
+  items.forEach((raw) => {
+    const item = raw || {};
+    // Keep cards readable even when metadata missing
+    const safe = {
+      evidence_id: item.evidence_id == null ? "" : String(item.evidence_id),
+      paper_id: item.paper_id == null ? "" : String(item.paper_id),
+      page: item.page,
+      reference: item.reference == null ? "" : String(item.reference),
+      type: item.type,
+      title: item.title || item.paper_title || null,
+      caption: item.caption == null ? "" : String(item.caption),
+      content: item.content == null ? "" : String(item.content),
+      table_data: item.table_data,
+      image_b64: item.image_b64,
+      image_mime: item.image_mime,
+      paper_title: item.paper_title || item.title || null,
+      score: item.score,
+    };
+    if (safe.type === "figure") grid.appendChild(figureCard(safe));
+    else if (safe.type === "table") grid.appendChild(tableCard(safe));
+  });
+  // Partition: with image/structured data vs metadata-only for figures
+  // (kept together for tests but visually grouped by honest messaging inside cards)
+  const any = items.length > 0;
+  show(grid, any);
+  show($("evidence-empty"), !any);
+  // Preserve the empty-state messaging but show a metadata-only hint when needed
+  const onlyMetadata = any && items.every((i) => i.type === "figure" && !(i.image_b64 && String(i.image_b64).replace(/\s+/g, "").length > 40));
+  if (onlyMetadata) setHtml($("evidence-empty"), "");
+}
+
+async function findEvidence() {
+  if (evidenceInFlight) return;
+  const query = $("evidence-query").value.trim();
+  const status = $("evidence-status");
+  if (!query) { setHtml(status, "Type what to look for first."); return; }
+  evidenceInFlight = true;
+  const btn = $("evidence-btn");
+  btn.disabled = true;
+  const loader = $("evidence-loader");
+  if (loader) loader.classList.remove("hidden");
+  setHtml(status, "Searching the retrieval corpus…");
+  try {
+    const scopeVal = ($("evidence-scope") && $("evidence-scope").value) || ($("scope") && $("scope").value) || "";
+    const paperIds = scopeVal.split(",").map((s) => s.trim()).filter(Boolean);
+    const payload = { query: query, top_k: 12 };
+    if (paperIds.length) payload.paper_ids = paperIds;
+    // Wanted Figure/Table refs (for exact-match ranking, not retrieval narrowing)
+    const wants = [];
+    for (const m of (query || "").matchAll(/\b(?:Figure|Fig\.?|Table|Tab\.?)\s*([0-9][0-9A-Za-z\-]*)\b/gi)) {
+      wants.push((m[0].trim().startsWith("F") || m[0].trim().startsWith("f") ? "Figure " : "Table ") + m[1]);
+    }
+    const r = await fetch(retrievalBase() + "/retrieve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const raw = await r.text();
+    let body2;
+    try { body2 = raw ? JSON.parse(raw) : {}; } catch (e) { body2 = null; }
+    if (!r.ok || !body2) {
+      setHtml(status, "Retrieval failed (HTTP " + r.status + "). " + (body2 && body2.detail ? body2.detail : ""));
+      return;
+    }
+    const rawItems = (Array.isArray(body2.evidence) ? body2.evidence : []);
+    const base = rawItems
+      .filter((item) => item.type === "figure" || item.type === "table")
+      .map((item) => ({
+        evidence_id: item.element_id || item.evidence_id || "",
+        paper_id: item.paper_id || "",
+        paper_title: item.paper_title || item.title || "",
+        title: item.paper_title || item.title || null,
+        page: item.page,
+        reference: item.reference || item.label || item.figure_id || item.table_id || item.element_id || "",
+        type: item.type,
+        caption: item.caption || item.table_caption || item.figure_caption || "",
+        content: item.content || item.text || "",
+        table_data: item.table_data,
+        image_b64: item.image_b64 || (item.image && (item.image.b64 || "")) || "",
+        image_mime: item.image_mime || (item.image && item.image.mime) || "image/png",
+        score: typeof item.score === "number" ? item.score : (typeof item.relevance === "number" ? item.relevance : undefined),
+        source: "corpus",
+      }));
+    // Server-side narrowing by paper when scope given — client-safe filter as well
+    const scoped = paperIds.length ? base.filter((it) => paperIds.indexOf(String(it.paper_id)) >= 0 || !String(it.paper_id)) : base;
+    const effective = scoped.length ? scoped : base;
+    const items = _rankEvidence(effective, query, wants);
+    if (!items.length) {
+      setHtml(status, base.length ? "No sufficiently relevant figure or table matched that query." : "No figure or table evidence matched that query.");
+      renderEvidence([]);
+      return;
+    }
+    const metaOnly = items.filter((i) => i.type === "figure" && !(i.image_b64 && String(i.image_b64).replace(/\s+/g, "").length > 40)).length;
+    setHtml(status, items.length + " figure/table evidence item(s) returned." + (metaOnly ? " (" + metaOnly + " metadata only)" : ""));
+    renderEvidence(items);
+  } catch (e) {
+    setHtml(status, "Retrieval failed: " + e);
+  } finally {
+    evidenceInFlight = false;
+    btn.disabled = false;
+    const loader2 = $("evidence-loader");
+    if (loader2) loader2.classList.add("hidden");
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Wiring
+ * ------------------------------------------------------------------ */
+$("check-btn").addEventListener("click", checkServices);
+$("upload-btn").addEventListener("click", uploadPdf);
+$("ask-btn").addEventListener("click", ask);
+$("clear-history-btn").addEventListener("click", clearHistory);
+$("arxiv-btn").addEventListener("click", searchArxiv);
+$("evidence-btn").addEventListener("click", findEvidence);
+$("evidence-session-btn").addEventListener("click", () => {
+  if (!sessionEvidence.length) {
+    setHtml($("evidence-status"), "No figures or tables have been cited by your answers yet.");
+    renderEvidence([]);
+    return;
+  }
+  setHtml($("evidence-status"), "Showing figures and tables cited by your answers in this session.");
+  renderEvidence(sessionEvidence);
+});
+$("ask-fill-btn").addEventListener("click", () => {
+  $("query").value = "Explain Figure 1 and describe what it demonstrates. Cite the supporting evidence.";
+  $("query").focus();
+});
+$("query").addEventListener("keydown", (evt) => {
+  if (evt.key === "Enter" && (evt.ctrlKey || evt.metaKey)) { evt.preventDefault(); ask(); }
+});
+
+renderSessionPapers();
+renderEvidence([]);
+show($("latest-answer"), false);
+checkServices();
+
+
+

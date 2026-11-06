@@ -53,3 +53,12 @@ logs/
 
 # Person 2 retrieval project lives alongside this repo (do not commit it here)
 multimodal_rag_retrieval_person2/
+
+# Local external harnesses & submodules
+llama.cpp/
+deepseek-harness/
+test_gpt4all.py
+local_chat.py
+public/
+src/
+app/static/index.backup.html

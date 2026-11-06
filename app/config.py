@@ -106,7 +106,7 @@ class Settings(BaseSettings):
     # --- retrieval (Person 2 service, Phase 8 /ask) --------------------------
     retrieval_mode: Literal["disabled", "mock", "http"] = "disabled"
     retrieval_base_url: str = "http://localhost:8000"
-    retrieval_timeout_s: float = Field(default=30.0, gt=0.0, le=300.0)
+    retrieval_timeout_s: float = Field(default=120.0, gt=0.0, le=300.0)
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
 
     # --- pipeline behaviour (consumed from Phase 2/4 onward) -----------------

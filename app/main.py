@@ -107,8 +107,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from pathlib import Path
 
     from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
 
-    _ui_index = Path(__file__).resolve().parent / "static" / "index.html"
+    _static_dir = Path(__file__).resolve().parent / "static"
+    _ui_index = _static_dir / "index.html"
+
+    app.mount("/landing-pages", StaticFiles(directory=_static_dir / "landing-pages"), name="landing-pages")
 
     @app.get("/ui", include_in_schema=False)
     async def _demo_ui() -> FileResponse:

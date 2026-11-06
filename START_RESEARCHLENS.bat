@@ -9,6 +9,7 @@ REM --- Environment ---
 set MODEL_PROVIDER=ollama
 set RETRIEVAL_MODE=http
 set RETRIEVAL_BASE_URL=http://127.0.0.1:8000
+set RETRIEVAL_TIMEOUT_S=120
 set API_HOST=127.0.0.1
 set API_PORT=8001
 set ANALYZER_MODEL=qwen2.5:1.5b
