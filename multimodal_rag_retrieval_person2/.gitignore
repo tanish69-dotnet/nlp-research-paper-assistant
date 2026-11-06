@@ -1,0 +1,36 @@
+venv/
+__pycache__/
+*.pyc
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Generated indexes, model caches, and disposable runtime artifacts
+chroma_db/
+*.sqlite3
+*.bin
+*.pickle
+*.log
+tmp/
+cache/
+model_cache/
+
+# Generated dataset outputs are ignored by default. These Phase 9H/9J source
+# snapshots are explicit reproducibility inputs and are intentionally tracked.
+# (Binary figure bytes stay out: the PNG/PDF can be regenerated from the
+# recorded e-print tarball SHA; only the manifest + JSON records are tracked.)
+data/*
+!data/processed_papers.json
+!data/evaluation_questions.json
+!data/source_artifacts/
+data/source_artifacts/*
+!data/source_artifacts/1611.04684v1.html
+!data/source_artifacts/1611.04684v1.json
+
+# Keep editor and OS files out of the repository
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

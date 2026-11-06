@@ -52,7 +52,6 @@ logs/
 .agent/
 
 # Person 2 retrieval project lives alongside this repo (do not commit it here)
-multimodal_rag_retrieval_person2/
 
 # Local external harnesses & submodules
 llama.cpp/
@@ -60,5 +59,18 @@ deepseek-harness/
 test_gpt4all.py
 local_chat.py
 public/
-src/
+/src/
 app/static/index.backup.html
+
+# Multimodal RAG Retrieval artifacts & runtime
+multimodal_rag_retrieval_person2/.git_backup/
+multimodal_rag_retrieval_person2/venv/
+multimodal_rag_retrieval_person2/chroma_db/
+multimodal_rag_retrieval_person2/model_cache/
+multimodal_rag_retrieval_person2/data/*
+!multimodal_rag_retrieval_person2/data/processed_papers.json
+!multimodal_rag_retrieval_person2/data/evaluation_questions.json
+!multimodal_rag_retrieval_person2/data/source_artifacts/
+multimodal_rag_retrieval_person2/data/source_artifacts/*
+!multimodal_rag_retrieval_person2/data/source_artifacts/1611.04684v1.html
+!multimodal_rag_retrieval_person2/data/source_artifacts/1611.04684v1.json
